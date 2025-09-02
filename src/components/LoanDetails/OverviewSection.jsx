@@ -1,6 +1,182 @@
 // components/LoanDetails/OverviewSection.jsx
 import React from 'react';
 
+// Industry favorability mapping based on underwriter requirements
+const INDUSTRY_FAVORABILITY = {
+  favorable: {
+    level: 'Favorable',
+    score: 0, // Lower risk score for favorable industries
+    color: 'text-green-600 bg-green-100',
+    industries: [
+      { name: 'Restaurants', naics: '7225' },
+      { name: 'Retail', naics: '44-45', restrictions: 'Restricted: Wholesale' },
+      { name: 'Medical Offices', naics: '621' },
+      { name: 'Software', naics: '511210' },
+      { name: 'Education', naics: '611110' },
+      { name: 'Utilities', naics: '22', restrictions: 'Restricted: Non-profits' }
+    ]
+  },
+  neutral: {
+    level: 'Neutral',
+    score: 5, // Medium risk score
+    color: 'text-yellow-600 bg-yellow-100',
+    industries: [
+      { name: 'Waste Management', naics: '562' },
+      { name: 'Hotels', naics: '7211' },
+      { name: 'Government Contracting', naics: 'Varies' },
+      { name: 'Manufacturing', naics: '31-33' },
+      { name: 'Laundry', naics: '8123' },
+      { name: 'Catering', naics: '7223' },
+      { name: 'Auto Repair', naics: '8111' }
+    ]
+  },
+  unfavorable: {
+    level: 'Unfavorable',
+    score: 10, // Higher risk score
+    color: 'text-orange-600 bg-orange-100',
+    industries: [
+      { name: 'Wholesale', naics: '42' },
+      { name: 'Staffing', naics: '5613' },
+      { name: 'Gas Stations', naics: '4471' },
+      { name: 'Landscaping', naics: '5617' },
+      { name: 'Telecommunications', naics: '517' },
+      { name: 'Towing', naics: '488410' },
+      { name: 'Food Trucks', naics: '722330' },
+      { name: 'Insurance', naics: '524' },
+      { name: 'Construction', naics: '23' },
+      { name: 'General Contractors', naics: '236' },
+      { name: 'Home Health Care', naics: '6216' },
+      { name: 'Transportation', naics: '48-49' },
+      { name: 'Trucking', naics: '484' },
+      { name: 'E-commerce', naics: '454110' },
+      { name: 'Adult Daycare', naics: '6244' }
+    ]
+  },
+  partiallyRestricted: {
+    level: 'Very Unfavorable',
+    score: 15, // Very high risk score
+    color: 'text-red-600 bg-red-100',
+    industries: [
+      { name: 'Real Estate', naics: '531' },
+      { name: 'Property Management', naics: '5311' },
+      { name: 'Advertising', naics: '5418' },
+      { name: 'Marketing', naics: '5418' },
+      { name: 'Media', naics: '515' },
+      { name: 'Entertainment', naics: '71' },
+      { name: 'Legal Services', naics: '5411' },
+      { name: 'Investment Advisors', naics: '523930' }
+    ]
+  },
+  restricted: {
+    level: 'Restricted',
+    score: 20, // Highest risk score - should avoid
+    color: 'text-red-800 bg-red-200',
+    industries: [
+      { name: 'Accounting', naics: '5412' },
+      { name: 'Non-Profit', naics: '813' },
+      { name: 'Public Administration', naics: '92' },
+      { name: 'Event Ticket Resellers', naics: '4539' },
+      { name: 'Bars', naics: '7224' },
+      { name: 'Liquor Stores', naics: '4453' },
+      { name: 'Cannabis', naics: '453998' },
+      { name: 'Marijuana', naics: '453998' },
+      { name: 'Tobacco', naics: '453991' },
+      { name: 'Vape Stores', naics: '459991' },
+      { name: 'Convenience Stores', naics: '4451' },
+      { name: 'Tax Preparation', naics: '541213' },
+      { name: 'Firearms', naics: '332994' },
+      { name: 'Online Gambling', naics: '7132' },
+      { name: 'Forex Trading', naics: '523110' },
+      { name: 'Cryptocurrency', naics: '523999' },
+      { name: 'Travel Agencies', naics: '5615' },
+      { name: 'Online Education', naics: '611710' }
+    ]
+  }
+};
+
+// Helper function to determine industry favorability
+const getIndustryFavorability = (industrySector, industrySubsector) => {
+  // Handle FALSE or null values
+  if (!industrySector || industrySector === false || industrySector === 'FALSE' || 
+      industrySector === 'Unknown' || industrySector === '') {
+    return {
+      level: 'Neutral',
+      score: 5,
+      color: 'text-gray-600 bg-gray-100',
+      reason: 'Industry not specified'
+    };
+  }
+  
+  // Convert to string if it's not already
+  const sectorStr = String(industrySector).toLowerCase();
+  const subsectorStr = industrySubsector ? String(industrySubsector).toLowerCase() : '';
+  
+  // Check each favorability category
+  for (const [key, category] of Object.entries(INDUSTRY_FAVORABILITY)) {
+    for (const industry of category.industries) {
+      const industryName = industry.name.toLowerCase();
+      
+      // Check for direct match or contains
+      if (sectorStr.includes(industryName) || 
+          subsectorStr.includes(industryName) ||
+          industryName.includes(sectorStr) ||
+          (subsectorStr && industryName.includes(subsectorStr))) {
+        
+        // Check for restrictions if any
+        if (industry.restrictions && 
+            (sectorStr.includes('wholesale') || subsectorStr.includes('wholesale'))) {
+          // If it's a restricted subsector, move to unfavorable
+          return {
+            ...INDUSTRY_FAVORABILITY.unfavorable,
+            reason: industry.restrictions
+          };
+        }
+        
+        return {
+          ...category,
+          matchedIndustry: industry.name,
+          naics: industry.naics
+        };
+      }
+    }
+  }
+  
+  // Special cases for common industry patterns
+  if (sectorStr.includes('health') || sectorStr.includes('medical')) {
+    if (sectorStr.includes('home health')) {
+      return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Home Health Care - Unfavorable' };
+    }
+    return { ...INDUSTRY_FAVORABILITY.favorable, reason: 'Medical/Health Services' };
+  }
+  
+  if (sectorStr.includes('food') || sectorStr.includes('beverage')) {
+    if (sectorStr.includes('truck')) {
+      return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Food Trucks - Unfavorable' };
+    }
+    return { ...INDUSTRY_FAVORABILITY.favorable, reason: 'Food Services' };
+  }
+  
+  if (sectorStr.includes('tech') || sectorStr.includes('software') || sectorStr.includes('saas')) {
+    return { ...INDUSTRY_FAVORABILITY.favorable, reason: 'Technology/Software' };
+  }
+  
+  if (sectorStr.includes('transport') || sectorStr.includes('truck') || sectorStr.includes('logistics')) {
+    return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Transportation/Trucking' };
+  }
+  
+  if (sectorStr.includes('construction') || sectorStr.includes('contractor')) {
+    return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Construction/Contracting' };
+  }
+  
+  // Default to neutral for unrecognized industries
+  return {
+    level: 'Neutral',
+    score: 5,
+    color: 'text-gray-600 bg-gray-100',
+    reason: 'Industry not in favorability list - defaulting to neutral'
+  };
+};
+
 export const OverviewSection = ({ loan }) => {
   // Calculate key performance indicators
   const calculateKPIs = () => {
@@ -61,17 +237,23 @@ export const OverviewSection = ({ loan }) => {
   
   const kpis = calculateKPIs();
   
-      const calculateBusinessAge = () => {
-        if (loan.client?.dateFounded) {
-            const founded = new Date(loan.client.dateFounded);
-            const now = new Date();
-            const years = (now - founded) / (1000 * 60 * 60 * 24 * 365);
-            return Math.floor(years);
-        }
-        else return 0;
-    };
+  const calculateBusinessAge = () => {
+    if (loan.client?.dateFounded) {
+      const founded = new Date(loan.client.dateFounded);
+      const now = new Date();
+      const years = (now - founded) / (1000 * 60 * 60 * 24 * 365);
+      return Math.floor(years);
+    }
+    return 0;
+  };
 
-    const businessAge = calculateBusinessAge();
+  const businessAge = calculateBusinessAge();
+  
+  // Get industry favorability
+  const industryFavorability = getIndustryFavorability(
+    loan.client?.industrySector, 
+    loan.client?.industrySubsector
+  );
 
   // Calculate detailed risk score breakdown
   const calculateRiskScoreBreakdown = () => {
@@ -80,7 +262,7 @@ export const OverviewSection = ({ loan }) => {
       ficoScore: { score: 0, max: 20, label: 'FICO Score' },
       debtRatio: { score: 0, max: 25, label: 'Debt/Revenue Ratio' },
       businessAge: { score: 0, max: 15, label: 'Business Age' },
-      industryRisk: { score: 0, max: 10, label: 'Industry Risk' }
+      industryRisk: { score: 0, max: 20, label: 'Industry Risk' } // Increased max from 10 to 20
     };
     
     // Payment History (0-30 points)
@@ -112,24 +294,17 @@ export const OverviewSection = ({ loan }) => {
       }
     }
     
-    // Calculate Business Age (0-15 points)
-    // Business Age scoring
+    // Business Age scoring (0-15 points)
     if (businessAge < 1) {
-    breakdown.businessAge.score = 15;
+      breakdown.businessAge.score = 15;
     } else if (businessAge < 2) {
-    breakdown.businessAge.score = 10;
+      breakdown.businessAge.score = 10;
     } else if (businessAge < 3) {
-    breakdown.businessAge.score = 5;
+      breakdown.businessAge.score = 5;
     }
     
-    // Industry Risk (0-10 points)
-    const sector = loan.client?.industrySector?.toLowerCase() || '';
-    const highRiskIndustries = ['restaurant', 'retail', 'hospitality', 'construction'];
-    if (highRiskIndustries.some(industry => sector.includes(industry))) {
-      breakdown.industryRisk.score = 10;
-    } else if (sector.includes('transportation') || sector.includes('auto')) {
-      breakdown.industryRisk.score = 5;
-    }
+    // Industry Risk (0-20 points) - Now using favorability data
+    breakdown.industryRisk.score = industryFavorability.score;
     
     const totalScore = Object.values(breakdown).reduce((sum, item) => sum + item.score, 0);
     
@@ -166,12 +341,28 @@ export const OverviewSection = ({ loan }) => {
     }).format(amount);
   };
   
+  // Format industry display - handles FALSE values
+  const formatIndustryDisplay = () => {
+    const sector = loan.client?.industrySector;
+    const subsector = loan.client?.industrySubsector;
+    
+    // Check for FALSE or invalid values
+    if (!sector || sector === false || sector === 'FALSE' || sector === '') {
+      return 'Not Specified';
+    }
+    
+    if (!subsector || subsector === false || subsector === 'FALSE' || subsector === '') {
+      return String(sector);
+    }
+    
+    return `${sector} - ${subsector}`;
+  };
+  
   return (
     <div className="space-y-4">
       {/* Team Information */}
       <div className="bg-white border rounded-lg p-4">
         <h3 className="text-lg font-semibold mb-3">Team Assignment</h3>
-        {console.log('Loan object:', loan)}
         <div className="grid grid-cols-3 gap-4">
           <div>
             <p className="text-xs text-gray-600">Underwriter</p>
@@ -188,43 +379,29 @@ export const OverviewSection = ({ loan }) => {
         </div>
       </div>
       
-      {/* Risk Assessment Card */}
+      {/* Risk Assessment Summary */}
       <div className="bg-white border rounded-lg p-4">
         <h3 className="text-lg font-semibold mb-3">Risk Assessment</h3>
-        <div className="flex items-center justify-between mb-4">
+        <div className="grid grid-cols-3 gap-4">
           <div>
-            <p className="text-sm text-gray-600">Overall Risk Level</p>
-            <span className={`inline-flex px-3 py-1 rounded-full text-sm font-semibold ${riskColors[riskLevel]}`}>
+            <p className="text-xs text-gray-600">Overall Risk</p>
+            <p className={`text-lg font-bold px-2 py-1 rounded inline-block ${riskColors[riskLevel]}`}>
               {riskLevel}
-            </span>
+            </p>
           </div>
-          <div className="text-right">
-            <p className="text-sm text-gray-600">Risk Score</p>
-            <p className="text-2xl font-bold">{calculatedRiskScore}</p>
-            <p className="text-xs text-gray-500">out of 100</p>
-          </div>
-        </div>
-        
-        <div className="grid grid-cols-2 gap-3 pt-3 border-t">
           <div>
-            <p className="text-xs text-gray-600">Banking Health</p>
-            <div className="flex items-center">
-              <div className="flex-1 bg-gray-200 rounded-full h-2 mr-2">
-                <div 
-                  className={`h-2 rounded-full ${
-                    kpis.bankingHealth >= 70 ? 'bg-green-500' : 
-                    kpis.bankingHealth >= 40 ? 'bg-yellow-500' : 'bg-red-500'
-                  }`}
-                  style={{ width: `${kpis.bankingHealth}%` }}
-                />
-              </div>
-              <span className="text-sm font-medium">{kpis.bankingHealth.toFixed(0)}%</span>
-            </div>
+            <p className="text-xs text-gray-600">Risk Score</p>
+            <p className="text-lg font-bold">{calculatedRiskScore}/110</p>
+            <p className="text-xs text-gray-500">
+              {calculatedRiskScore <= 25 ? 'Low Risk' : 
+               calculatedRiskScore <= 50 ? 'Medium Risk' : 
+               calculatedRiskScore <= 75 ? 'High Risk' : 'Critical Risk'}
+            </p>
           </div>
           <div>
             <p className="text-xs text-gray-600">Collection Rate</p>
-            <div className="flex items-center">
-              <div className="flex-1 bg-gray-200 rounded-full h-2 mr-2">
+            <div className="flex items-center space-x-2">
+              <div className="flex-1 bg-gray-200 rounded-full h-2">
                 <div 
                   className={`h-2 rounded-full ${
                     kpis.collectionRate >= 90 ? 'bg-green-500' : 
@@ -235,6 +412,31 @@ export const OverviewSection = ({ loan }) => {
               </div>
               <span className="text-sm font-medium">{kpis.collectionRate.toFixed(0)}%</span>
             </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Industry Analysis - NEW SECTION */}
+      <div className="bg-white border rounded-lg p-4">
+        <h3 className="text-lg font-semibold mb-3">Industry Analysis</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-gray-600">Industry Classification</p>
+            <p className="font-semibold">{formatIndustryDisplay()}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-600">Industry Favorability</p>
+            <div className="flex items-center space-x-2">
+              <span className={`px-2 py-1 rounded text-sm font-semibold ${industryFavorability.color}`}>
+                {industryFavorability.level}
+              </span>
+              {industryFavorability.naics && (
+                <span className="text-xs text-gray-500">NAICS: {industryFavorability.naics}</span>
+              )}
+            </div>
+            {industryFavorability.reason && (
+              <p className="text-xs text-gray-500 mt-1">{industryFavorability.reason}</p>
+            )}
           </div>
         </div>
       </div>
@@ -266,7 +468,7 @@ export const OverviewSection = ({ loan }) => {
                 {key === 'ficoScore' && `FICO: ${loan.lead?.fico || 'Unknown'}`}
                 {key === 'debtRatio' && `Ratio: ${kpis.dscr.toFixed(2)*100}%`}
                 {key === 'businessAge' && `${businessAge || 0} years`}
-                {key === 'industryRisk' && (loan.client?.industrySector || 'Unknown')}
+                {key === 'industryRisk' && `${industryFavorability.level} - ${formatIndustryDisplay()}`}
               </p>
             </div>
           ))}
@@ -274,7 +476,7 @@ export const OverviewSection = ({ loan }) => {
         <div className="mt-4 p-3 bg-gray-50 rounded">
           <p className="text-xs text-gray-600">
             <strong>Scoring Logic:</strong> Higher scores indicate higher risk. 
-            Score ranges: 0-25 (Low), 26-50 (Medium), 51-75 (High), 76-100 (Critical)
+            Score ranges: 0-27 (Low), 28-55 (Medium), 56-82 (High), 83-110 (Critical)
           </p>
         </div>
       </div>
@@ -363,56 +565,31 @@ export const OverviewSection = ({ loan }) => {
             <p className="text-xl font-bold">{formatCurrency(loan.lead?.avgDailyBalance || 0)}</p>
             <p className="text-xs text-gray-500">
               {(loan.lead?.avgDailyBalance || 0) >= 5000 ? 'Strong' : 
-               (loan.lead?.avgDailyBalance || 0) >= 1000 ? 'Low' : 'Critical'}
+               (loan.lead?.avgDailyBalance || 0) >= 1000 ? 'Adequate' : 'Low'}
             </p>
           </div>
         </div>
-      </div>
-      
-      {/* Payment Status Summary */}
-      <div className="bg-blue-50 border-l-4 border-blue-400 p-4">
-        <div className="flex justify-between items-start">
-          <div>
-            <p className="font-semibold text-blue-900">
-              Status: {loan.status.replace('_', ' ').toUpperCase()}
-            </p>
-            <p className="text-sm text-blue-700 mt-1">{loan.statusCalculation.explanation}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-sm text-blue-700">Performance</p>
-            <p className="text-xl font-bold text-blue-900">
-              {loan.statusCalculation.paymentsMade} / {loan.statusCalculation.totalExpected}
-            </p>
-          </div>
+        <div className="mt-3 p-2 bg-gray-50 rounded">
+          <p className="text-xs text-gray-600">
+            <strong>Banking Health Score:</strong> {kpis.bankingHealth.toFixed(0)}/100
+          </p>
         </div>
-        
-        {loan.catchUpPayments && loan.catchUpPayments.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-blue-200">
-            <p className="text-sm font-semibold text-blue-900">
-              Recovery Detected: {kpis.recoveryVelocity} periods recovered
-            </p>
-          </div>
-        )}
       </div>
       
-      {/* Early Warning Signals */}
-      {(kpis.dscr > .15 || kpis.bankingHealth < 50 || loan.statusCalculation.missedPayments > 0) && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <h4 className="text-sm font-semibold text-yellow-900 mb-2">⚠️ Early Warning Signals</h4>
-          <ul className="text-sm text-yellow-800 space-y-1">
-            {kpis.dscr > .15 && (
-              <li>• High debt service coverage ratio ({kpis.dscr.toFixed(2)*100}%)</li>
-            )}
-            {kpis.bankingHealth < 50 && (
-              <li>• Poor banking behavior indicators ({kpis.bankingHealth.toFixed(0)}% health)</li>
-            )}
-            {loan.lead?.avgNSFs > 4 && (
-              <li>• High NSF frequency ({loan.lead.avgNSFs.toFixed(2)}/month)</li>
-            )}
-            {loan.statusCalculation.missedPayments > 0 && (
-              <li>• Payment delinquency ({loan.statusCalculation.missedPayments} missed)</li>
-            )}
-          </ul>
+      {/* Recovery Status (if applicable) */}
+      {kpis.recoveryVelocity !== null && (
+        <div className="bg-white border rounded-lg p-4">
+          <h3 className="text-lg font-semibold mb-3">Recovery Status</h3>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-600">Payments Recovered</p>
+              <p className="text-2xl font-bold text-green-600">{kpis.recoveryVelocity}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-gray-600">Recovery in Progress</p>
+              <p className="text-sm font-medium">Catch-up plan active</p>
+            </div>
+          </div>
         </div>
       )}
     </div>
