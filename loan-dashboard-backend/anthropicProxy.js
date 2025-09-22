@@ -197,7 +197,7 @@ app.listen(PORT, () => {
 ${!ANTHROPIC_API_KEY ? `
 ⚠️  WARNING: No API key configured!
    Add ANTHROPIC_API_KEY to your .env file:
-   ANTHROPIC_API_KEY=***REMOVED***
+   ANTHROPIC_API_KEY= process.env.ANTHROPIC_API_KEY
 ` : '✅ Ready to process analysis requests'}
   `);
 });
