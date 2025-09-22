@@ -33,3 +33,9 @@ loan-dashboard-backend/.env
 # Common extras
 venv/
 node_modules/
+
+# archives & tools
+*.zip
+tall git-filter-repo
+git-filter-repo*
+*.jar
