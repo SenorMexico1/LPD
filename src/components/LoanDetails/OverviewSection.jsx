@@ -18,7 +18,7 @@ const INDUSTRY_FAVORABILITY = {
   },
   neutral: {
     level: 'Neutral',
-    score: 5, // Medium risk score
+    score: 5, // Medium risk score  
     color: 'text-yellow-600 bg-yellow-100',
     industries: [
       { name: 'Waste Management', naics: '562' },
@@ -217,7 +217,8 @@ const getIndustryFavorability = (industrySector, industrySubsector) => {
   };
 };
 
-export const OverviewSection = ({ loan }) => {
+// Export the calculation function so it can be used by other components
+export const calculateRiskScore = (loan) => {
   // Calculate accurate missed payments accounting for ACH reversals and fees
   const calculateAccurateMissedPayments = () => {
     const today = new Date();
@@ -343,8 +344,90 @@ export const OverviewSection = ({ loan }) => {
     return expectedPeriods - satisfiedPeriods;
   };
   
-  // Use the accurate calculation
   const accurateMissedPayments = calculateAccurateMissedPayments();
+  
+  const calculateBusinessAge = () => {
+    if (loan.client?.dateFounded) {
+      const founded = new Date(loan.client.dateFounded);
+      const now = new Date();
+      const years = (now - founded) / (1000 * 60 * 60 * 24 * 365);
+      return Math.floor(years);
+    }
+    return 0;
+  };
+
+  const businessAge = calculateBusinessAge();
+  
+  // Get industry favorability
+  const industryFavorability = getIndustryFavorability(
+    loan.client?.industrySector, 
+    loan.client?.industrySubsector
+  );
+
+  // Calculate detailed risk score breakdown - BALANCED TO 100 POINTS
+  const breakdown = {
+    paymentHistory: { score: 0, max: 30, label: 'Payment History' },
+    ficoScore: { score: 0, max: 15, label: 'FICO Score' },  // Reduced from 20 to 15
+    debtRatio: { score: 0, max: 25, label: 'Debt/Revenue Ratio' },
+    businessAge: { score: 0, max: 10, label: 'Business Age' },  // Reduced from 15 to 10
+    industryRisk: { score: 0, max: 20, label: 'Industry Risk' }
+  };
+  
+  // Payment History (0-30 points)
+  if (accurateMissedPayments > 0) {
+    breakdown.paymentHistory.score = Math.min(30, accurateMissedPayments * 10); // Increased from 7.5 to 10 per missed payment
+  }
+  
+  // FICO Score (0-15 points) - Adjusted scoring
+  const fico = loan.lead?.fico || 650;
+  if (fico < 600) {
+    breakdown.ficoScore.score = 15;
+  } else if (fico < 650) {
+    breakdown.ficoScore.score = 8;
+  } else if (fico < 700) {
+    breakdown.ficoScore.score = 4;
+  }
+  
+  // Debt/Revenue Ratio (0-25 points)
+  const revenue = loan.lead?.avgMonthlyRevenue || loan.lead?.avgRevenue || 0;
+  const debt = loan.lead?.avgMCADebits || loan.lead?.avgMcaDebts || loan.lead?.avgMCADebts || 0;
+  if (revenue > 0) {
+    const ratio = debt / revenue;
+    if (ratio > .15 ) {
+      breakdown.debtRatio.score = 25;
+    } else if (ratio > .05) {
+      breakdown.debtRatio.score = 15;
+    } else if (ratio > .01) {
+      breakdown.debtRatio.score = 5;
+    }
+  }
+  
+  // Business Age scoring (0-10 points) - Adjusted scoring
+  if (businessAge < 1) {
+    breakdown.businessAge.score = 10;
+  } else if (businessAge < 2) {
+    breakdown.businessAge.score = 7;
+  } else if (businessAge < 3) {
+    breakdown.businessAge.score = 3;
+  }
+  
+  // Industry Risk (0-20 points)
+  breakdown.industryRisk.score = industryFavorability.score;
+  
+  const totalScore = Object.values(breakdown).reduce((sum, item) => sum + item.score, 0);
+  
+  return { 
+    breakdown, 
+    totalScore, 
+    accurateMissedPayments,
+    businessAge,
+    industryFavorability 
+  };
+};
+
+export const OverviewSection = ({ loan }) => {
+  // Get the calculated risk score
+  const { breakdown: riskBreakdown, totalScore: calculatedRiskScore, accurateMissedPayments, businessAge, industryFavorability } = calculateRiskScore(loan);
   
   // Calculate key performance indicators
   const calculateKPIs = () => {
@@ -357,10 +440,12 @@ export const OverviewSection = ({ loan }) => {
     const totalReceived = loan.statusCalculation.totalReceived;
     const collectionRate = totalExpected > 0 ? (totalReceived / totalExpected) * 100 : 0;
     
-    // Debt Service Coverage Ratio (DSCR)
-    const monthlyRevenue = loan.lead?.avgRevenue || 0;
-    const monthlyDebtService = loan.lead?.avgMCADebts || 0;
-    const dscr = monthlyDebtService > 0 ? monthlyDebtService / monthlyRevenue : 0;
+    // Fixed Debt Service Coverage Ratio (DSCR)
+    const monthlyRevenue = loan.lead?.avgMonthlyRevenue || loan.lead?.avgRevenue || 0;
+    const monthlyDebtService = loan.lead?.avgMCADebits || loan.lead?.avgMcaDebts || loan.lead?.avgMCADebts || 0;
+    
+    // DSCR should be revenue divided by debt (higher is better)
+    const dscr = monthlyDebtService > 0 ? monthlyRevenue / monthlyDebtService : 999;
     
     // Banking Health Score (0-100)
     let bankingHealth = 100;
@@ -404,93 +489,19 @@ export const OverviewSection = ({ loan }) => {
       bankingHealth,
       avgDaysBetweenPayments,
       firstPaymentRisk,
-      recoveryVelocity
+      recoveryVelocity,
+      monthlyRevenue,
+      monthlyDebtService
     };
   };
   
   const kpis = calculateKPIs();
   
-  const calculateBusinessAge = () => {
-    if (loan.client?.dateFounded) {
-      const founded = new Date(loan.client.dateFounded);
-      const now = new Date();
-      const years = (now - founded) / (1000 * 60 * 60 * 24 * 365);
-      return Math.floor(years);
-    }
-    return 0;
-  };
-
-  const businessAge = calculateBusinessAge();
-  
-  // Get industry favorability
-  const industryFavorability = getIndustryFavorability(
-    loan.client?.industrySector, 
-    loan.client?.industrySubsector
-  );
-
-  // Calculate detailed risk score breakdown
-  const calculateRiskScoreBreakdown = () => {
-    const breakdown = {
-      paymentHistory: { score: 0, max: 30, label: 'Payment History' },
-      ficoScore: { score: 0, max: 20, label: 'FICO Score' },
-      debtRatio: { score: 0, max: 25, label: 'Debt/Revenue Ratio' },
-      businessAge: { score: 0, max: 15, label: 'Business Age' },
-      industryRisk: { score: 0, max: 20, label: 'Industry Risk' }
-    };
-    
-    // Payment History (0-30 points) - Use accurate missed payments
-    if (accurateMissedPayments > 0) {
-      breakdown.paymentHistory.score = Math.min(30, accurateMissedPayments * 7.5);
-    }
-    
-    // FICO Score (0-20 points)
-    const fico = loan.lead?.fico || 650;
-    if (fico < 600) {
-      breakdown.ficoScore.score = 20;
-    } else if (fico < 650) {
-      breakdown.ficoScore.score = 10;
-    } else if (fico < 700) {
-      breakdown.ficoScore.score = 5;
-    }
-    
-    // Debt/Revenue Ratio (0-25 points)
-    const revenue = loan.lead?.avgRevenue || 0;
-    const debt = loan.lead?.avgMCADebits || 0;
-    if (revenue > 0) {
-      const ratio = debt / revenue;
-      if (ratio > .15 ) {
-        breakdown.debtRatio.score = 25;
-      } else if (ratio > .05) {
-        breakdown.debtRatio.score = 15;
-      } else if (ratio > .01) {
-        breakdown.debtRatio.score = 5;
-      }
-    }
-    
-    // Business Age scoring (0-15 points)
-    if (businessAge < 1) {
-      breakdown.businessAge.score = 15;
-    } else if (businessAge < 2) {
-      breakdown.businessAge.score = 10;
-    } else if (businessAge < 3) {
-      breakdown.businessAge.score = 5;
-    }
-    
-    // Industry Risk (0-20 points) - Using favorability data
-    breakdown.industryRisk.score = industryFavorability.score;
-    
-    const totalScore = Object.values(breakdown).reduce((sum, item) => sum + item.score, 0);
-    
-    return { breakdown, totalScore };
-  };
-  
-  const { breakdown: riskBreakdown, totalScore: calculatedRiskScore } = calculateRiskScoreBreakdown();
-  
-  // Risk level determination - Use accurate missed payments
+  // Risk level determination
   const getRiskLevel = () => {
     if (loan.status === 'default' || loan.status === 'restructured') return 'Critical';
     if (accurateMissedPayments >= 2) return 'High';
-    if (accurateMissedPayments === 1 || kpis.dscr < 1.5) return 'Medium';
+    if (accurateMissedPayments === 1 || kpis.dscr < 6.67) return 'Medium';
     if (kpis.bankingHealth < 50 || loan.lead?.fico < 600) return 'Elevated';
     return 'Low';
   };
@@ -514,12 +525,11 @@ export const OverviewSection = ({ loan }) => {
     }).format(amount);
   };
   
-  // Format industry display - handles FALSE values
+  // Format industry display
   const formatIndustryDisplay = () => {
     const sector = loan.client?.industrySector;
     const subsector = loan.client?.industrySubsector;
     
-    // Check for FALSE or invalid values
     if (!sector || sector === false || sector === 'FALSE' || sector === '') {
       return 'Not Specified';
     }
@@ -529,6 +539,15 @@ export const OverviewSection = ({ loan }) => {
     }
     
     return `${sector} - ${subsector}`;
+  };
+  
+  // Calculate the actual debt to revenue ratio as a percentage
+  const getDebtToRevenuePercentage = () => {
+    const revenue = loan.lead?.avgMonthlyRevenue || loan.lead?.avgRevenue || 0;
+    const debt = loan.lead?.avgMCADebits || loan.lead?.avgMcaDebts || loan.lead?.avgMCADebts || 0;
+    
+    if (revenue === 0) return 0;
+    return ((debt / revenue) * 100).toFixed(1);
   };
   
   return (
@@ -564,7 +583,7 @@ export const OverviewSection = ({ loan }) => {
           </div>
           <div>
             <p className="text-xs text-gray-600">Risk Score</p>
-            <p className="text-lg font-bold">{calculatedRiskScore}/110</p>
+            <p className="text-lg font-bold">{calculatedRiskScore}/100</p>
             <p className="text-xs text-gray-500">
               {calculatedRiskScore <= 25 ? 'Low Risk' : 
                calculatedRiskScore <= 50 ? 'Medium Risk' : 
@@ -639,7 +658,7 @@ export const OverviewSection = ({ loan }) => {
               <p className="text-xs text-gray-500 mt-1">
                 {key === 'paymentHistory' && `${accurateMissedPayments} missed payments`}
                 {key === 'ficoScore' && `FICO: ${loan.lead?.fico || 'Unknown'}`}
-                {key === 'debtRatio' && `Ratio: ${kpis.dscr.toFixed(2)*100}%`}
+                {key === 'debtRatio' && `Ratio: ${getDebtToRevenuePercentage()}%`}
                 {key === 'businessAge' && `${businessAge || 0} years`}
                 {key === 'industryRisk' && `${industryFavorability.level} - ${formatIndustryDisplay()}`}
               </p>
@@ -649,7 +668,7 @@ export const OverviewSection = ({ loan }) => {
         <div className="mt-4 p-3 bg-gray-50 rounded">
           <p className="text-xs text-gray-600">
             <strong>Scoring Logic:</strong> Higher scores indicate higher risk. 
-            Score ranges: 0-27 (Low), 28-55 (Medium), 56-82 (High), 83-110 (Critical)
+            Score ranges: 0-25 (Low), 26-50 (Medium), 51-75 (High), 76-100 (Critical)
           </p>
         </div>
       </div>
@@ -661,13 +680,16 @@ export const OverviewSection = ({ loan }) => {
           <div>
             <p className="text-xs text-gray-600">Debt Service Coverage Ratio</p>
             <p className={`text-lg font-semibold ${
-              kpis.dscr <= .01 ? 'text-green-600' : 
-              kpis.dscr <= 0.5 ? 'text-yellow-600' : 'text-red-600'
+              kpis.dscr > 100 ? 'text-blue-600' :
+              kpis.dscr > 15 ? 'text-green-600' : 
+              kpis.dscr > 6.67 ? 'text-yellow-600' : 'text-red-600'
             }`}>
-              {kpis.dscr.toFixed(2) * 100}%
+              {kpis.dscr > 100 ? '∞' : kpis.dscr.toFixed(2)}x
             </p>
             <p className="text-xs text-gray-500">
-              {kpis.dscr >= 2 ? 'Strong' : kpis.dscr >= 1.5 ? 'Adequate' : 'Concerning'}
+              {kpis.dscr > 100 ? 'Very Strong (No Debt)' :
+               kpis.dscr > 15 ? 'Strong (Revenue > 15x Debt)' : 
+               kpis.dscr > 6.67 ? 'Moderate' : 'Weak (Revenue < 6.67x Debt)'}
             </p>
           </div>
           
@@ -683,10 +705,12 @@ export const OverviewSection = ({ loan }) => {
           <div>
             <p className="text-xs text-gray-600">Debt to Revenue</p>
             <p className="text-lg font-semibold">
-              {formatCurrency(loan.lead?.avgMCADebits || 0)}/ 
-              {formatCurrency(loan.lead?.avgRevenue || 0)}
+              {formatCurrency(kpis.monthlyDebtService)}/ 
+              {formatCurrency(kpis.monthlyRevenue)}
             </p>
-            <p className="text-xs text-gray-500">Monthly cash flow</p>
+            <p className="text-xs text-gray-500">
+              {getDebtToRevenuePercentage()}% of revenue
+            </p>
           </div>
           
           <div>

@@ -188,35 +188,162 @@ const calculateBusinessAge = (dateFounded) => {
   return 0;
 };
 
-// Calculate comprehensive risk score - matching the OverviewSection logic
+// Calculate accurate missed payments accounting for ACH reversals and fees
+const calculateAccurateMissedPayments = (loan) => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayString = today.toISOString().split('T')[0];
+  
+  // Define fee transaction types that should NOT count as payments
+  const FEE_TRANSACTION_TYPES = [
+    'origination fee collection',
+    'initiation collection',
+    'merchant fee collection',
+    'stamp tax fee',
+    'nsf fees',
+    'legal fees',
+    'legal fee',
+    'merchant fee',
+    'origination fee',
+    'initiation',
+    'restructure penalty',
+    'loan payout',
+    'cost of capital',
+    'capital'
+  ];
+  
+  // Process transactions to identify reversed payments
+  const reversedTransactionIds = new Set();
+  const processedTransactions = [];
+  
+  // Sort transactions by date and time
+  const sortedTransactions = [...loan.transactions]
+    .sort((a, b) => {
+      const dateCompare = new Date(a.date) - new Date(b.date);
+      if (dateCompare !== 0) return dateCompare;
+      if (a.typeName?.includes('REVERSAL')) return 1;
+      if (b.typeName?.includes('REVERSAL')) return -1;
+      return 0;
+    });
+  
+  // Identify reversed transactions
+  sortedTransactions.forEach((trans, idx) => {
+    if (trans.typeName?.toLowerCase().includes('reversal') || 
+        trans.typeName?.toLowerCase().includes('nsf')) {
+      // Look for the original transaction to reverse
+      for (let i = idx - 1; i >= 0; i--) {
+        const prevTrans = sortedTransactions[i];
+        if (prevTrans.credit === trans.debit && 
+            !reversedTransactionIds.has(i) &&
+            prevTrans.typeName?.toLowerCase().includes('ach')) {
+          reversedTransactionIds.add(i);
+          reversedTransactionIds.add(idx);
+          break;
+        }
+      }
+    }
+  });
+  
+  // Filter out reversed transactions, reversals, and fee collections
+  sortedTransactions.forEach((trans, idx) => {
+    if (reversedTransactionIds.has(idx)) return;
+    if (!trans.credit || trans.credit <= 0) return;
+    
+    const transTypeLower = (trans.typeName || '').toLowerCase();
+    const isFeeTransaction = FEE_TRANSACTION_TYPES.some(feeType => 
+      transTypeLower.includes(feeType)
+    );
+    if (isFeeTransaction) return;
+    
+    processedTransactions.push({
+      ...trans,
+      normalizedDate: trans.date.split('T')[0],
+      id: trans.id || `trans_${idx}`
+    });
+  });
+  
+  // Calculate how many payment periods are satisfied
+  const installmentAmount = loan.installmentAmount || loan.instalmentAmount || 14534.88;
+  let availablePayments = [...processedTransactions];
+  let satisfiedPeriods = 0;
+  let expectedPeriods = 0;
+  
+  // Process each payment period
+  loan.paydates.forEach((paydate) => {
+    const paydateStr = paydate.date.split('T')[0];
+    if (paydateStr >= todayString) return; // Skip future payments
+    
+    expectedPeriods++;
+    let remainingNeeded = paydate.amount;
+    let periodSatisfied = false;
+    
+    // Try to satisfy this period with available payments
+    for (let i = 0; i < availablePayments.length && remainingNeeded > 0.01; i++) {
+      const payment = availablePayments[i];
+      
+      if (payment.credit >= remainingNeeded * 0.99) {
+        // This payment completes the period
+        remainingNeeded = 0;
+        periodSatisfied = true;
+        
+        // If there's excess, keep it for the next period
+        if (payment.credit > paydate.amount * 1.01) {
+          availablePayments[i] = {
+            ...payment,
+            credit: payment.credit - paydate.amount
+          };
+        } else {
+          availablePayments.splice(i, 1);
+          i--;
+        }
+        break;
+      } else if (payment.credit >= installmentAmount * 0.1) {
+        // Partial payment
+        remainingNeeded -= payment.credit;
+        availablePayments.splice(i, 1);
+        i--;
+      }
+    }
+    
+    if (periodSatisfied || remainingNeeded <= 0.01) {
+      satisfiedPeriods++;
+    }
+  });
+  
+  return expectedPeriods - satisfiedPeriods;
+};
+
+// Calculate comprehensive risk score - UPDATED TO 100-POINT SCALE
 const calculateRiskScore = (loan) => {
+  // Use accurate missed payment calculation
+  const accurateMissedPayments = calculateAccurateMissedPayments(loan);
+  
   const breakdown = {
     paymentHistory: { score: 0, max: 30 },
-    ficoScore: { score: 0, max: 20 },
+    ficoScore: { score: 0, max: 15 },  // Reduced from 20 to 15
     debtRatio: { score: 0, max: 25 },
-    businessAge: { score: 0, max: 15 },
+    businessAge: { score: 0, max: 10 },  // Reduced from 15 to 10
     industryRisk: { score: 0, max: 20 }
   };
   
-  // Payment History (0-30 points)
-  const missedPayments = loan.statusCalculation?.missedPayments || loan.missedPayments || 0;
-  if (missedPayments > 0) {
-    breakdown.paymentHistory.score = Math.min(30, missedPayments * 7.5);
+  // Payment History (0-30 points) - Using accurate missed payments
+  if (accurateMissedPayments > 0) {
+    breakdown.paymentHistory.score = Math.min(30, accurateMissedPayments * 10); // Increased from 7.5 to 10
   }
   
-  // FICO Score (0-20 points)
+  // FICO Score (0-15 points) - Adjusted scoring
   const fico = loan.lead?.fico || 650;
   if (fico < 600) {
-    breakdown.ficoScore.score = 20;
+    breakdown.ficoScore.score = 15;
   } else if (fico < 650) {
-    breakdown.ficoScore.score = 10;
+    breakdown.ficoScore.score = 8;
   } else if (fico < 700) {
-    breakdown.ficoScore.score = 5;
+    breakdown.ficoScore.score = 4;
   }
   
-  // Debt/Revenue Ratio (0-25 points)
-  const revenue = loan.lead?.avgRevenue || 0;
-  const debt = loan.lead?.avgMCADebts || 0;
+  // Debt/Revenue Ratio (0-25 points) - Fixed field names
+  const revenue = loan.lead?.avgMonthlyRevenue || loan.lead?.avgRevenue || 0;
+  const debt = loan.lead?.avgMCADebits || loan.lead?.avgMcaDebts || loan.lead?.avgMCADebts || 0;
   if (revenue > 0) {
     const ratio = debt / revenue;
     if (ratio > 0.15) {
@@ -228,14 +355,14 @@ const calculateRiskScore = (loan) => {
     }
   }
   
-  // Business Age scoring (0-15 points)
+  // Business Age scoring (0-10 points) - Adjusted scoring
   const businessAge = calculateBusinessAge(loan.client?.dateFounded);
   if (businessAge < 1) {
-    breakdown.businessAge.score = 15;
-  } else if (businessAge < 2) {
     breakdown.businessAge.score = 10;
+  } else if (businessAge < 2) {
+    breakdown.businessAge.score = 7;
   } else if (businessAge < 3) {
-    breakdown.businessAge.score = 5;
+    breakdown.businessAge.score = 3;
   }
   
   // Industry Risk (0-20 points) - Using favorability data
@@ -261,21 +388,27 @@ export const LoanTable = ({ loans, sortBy, setSortBy, sortOrder, setSortOrder, o
     }
   };
 
-  // Enhance loans with calculated risk scores
+  // Enhance loans with calculated risk scores and accurate missed payments
   const enhancedLoans = loans.map(loan => ({
     ...loan,
     calculatedRiskScore: calculateRiskScore(loan),
-    merchantName: loan.client?.name || loan.merchantName || 'Unknown'
+    accurateMissedPayments: calculateAccurateMissedPayments(loan),
+    merchantName: loan.client?.displayName || loan.client?.name || loan.merchantName || 'Unknown'
   }));
 
   const sortedLoans = [...enhancedLoans].sort((a, b) => {
     let aVal = a[sortBy];
     let bVal = b[sortBy];
     
-    // Special handling for calculated risk score
+    // Special handling for calculated fields
     if (sortBy === 'riskScore') {
       aVal = a.calculatedRiskScore;
       bVal = b.calculatedRiskScore;
+    }
+    
+    if (sortBy === 'missedPayments') {
+      aVal = a.accurateMissedPayments;
+      bVal = b.accurateMissedPayments;
     }
     
     if (typeof aVal === 'string') {
@@ -335,6 +468,9 @@ export const LoanTable = ({ loans, sortBy, setSortBy, sortOrder, setSortOrder, o
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Industry
               </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                DSCR
+              </th>
               <SortableHeader 
                 field="riskScore" 
                 label="Risk Score" 
@@ -354,6 +490,11 @@ export const LoanTable = ({ loans, sortBy, setSortBy, sortOrder, setSortOrder, o
                 loan.client?.industrySubsector
               );
               
+              // Calculate DSCR
+              const monthlyRevenue = loan.lead?.avgMonthlyRevenue || loan.lead?.avgRevenue || 0;
+              const monthlyDebtService = loan.lead?.avgMCADebits || loan.lead?.avgMcaDebts || loan.lead?.avgMCADebts || 0;
+              const dscr = monthlyDebtService > 0 ? monthlyRevenue / monthlyDebtService : 999;
+              
               return (
                 <tr key={loan.loanNumber} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -366,13 +507,20 @@ export const LoanTable = ({ loans, sortBy, setSortBy, sortOrder, setSortOrder, o
                     <StatusBadge status={loan.status} />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${loan.contractBalance.toLocaleString()}
+                    ${(loan.contractBalance || 0).toLocaleString()}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {loan.missedPayments || 0}
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <span className={`font-semibold ${
+                      loan.accurateMissedPayments > 0 ? 'text-red-600' : 'text-gray-900'
+                    }`}>
+                      {loan.accurateMissedPayments}
+                    </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <IndustryBadge favorability={industryFavorability} />
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <DSCRIndicator dscr={dscr} />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     <RiskIndicator score={loan.calculatedRiskScore} />
@@ -428,12 +576,32 @@ const IndustryBadge = ({ favorability }) => {
   );
 };
 
+const DSCRIndicator = ({ dscr }) => {
+  const getColor = () => {
+    if (dscr > 100) return 'text-blue-600 font-bold';
+    if (dscr > 15) return 'text-green-600 font-bold';
+    if (dscr > 6.67) return 'text-yellow-600';
+    return 'text-red-600';
+  };
+  
+  const getLabel = () => {
+    if (dscr > 100) return '∞';
+    return `${dscr.toFixed(1)}x`;
+  };
+  
+  return (
+    <span className={getColor()}>
+      {getLabel()}
+    </span>
+  );
+};
+
 const RiskIndicator = ({ score }) => {
-  // Determine risk level based on score (0-110 scale)
+  // Determine risk level based on score (0-100 scale)
   const getRiskLevel = () => {
-    if (score <= 27) return { text: 'Low', color: 'bg-green-500', textColor: 'text-green-600' };
-    if (score <= 55) return { text: 'Medium', color: 'bg-yellow-500', textColor: 'text-yellow-600' };
-    if (score <= 82) return { text: 'High', color: 'bg-orange-500', textColor: 'text-orange-600' };
+    if (score <= 25) return { text: 'Low', color: 'bg-green-500', textColor: 'text-green-600' };
+    if (score <= 50) return { text: 'Medium', color: 'bg-yellow-500', textColor: 'text-yellow-600' };
+    if (score <= 75) return { text: 'High', color: 'bg-orange-500', textColor: 'text-orange-600' };
     return { text: 'Critical', color: 'bg-red-500', textColor: 'text-red-600' };
   };
   
@@ -448,7 +616,7 @@ const RiskIndicator = ({ score }) => {
         <div className="w-20 bg-gray-200 rounded-full h-2">
           <div 
             className={`h-2 rounded-full transition-all duration-300 ${riskLevel.color}`}
-            style={{ width: `${Math.min((score / 110) * 100, 100)}%` }}
+            style={{ width: `${Math.min((score / 100) * 100, 100)}%` }}
           />
         </div>
       </div>
