@@ -111,61 +111,100 @@ const getIndustryFavorability = (industrySector, industrySubsector) => {
   const sectorStr = String(industrySector).toLowerCase();
   const subsectorStr = industrySubsector ? String(industrySubsector).toLowerCase() : '';
   
+  // Extract NAICS code if present (e.g., "(23) Construction" -> "23")
+  const naicsMatch = sectorStr.match(/\((\d+)\)/);
+  const naicsCode = naicsMatch ? naicsMatch[1] : null;
+  
+  // Remove NAICS code from sector string for cleaner matching
+  const cleanSectorStr = sectorStr.replace(/\(\d+\)\s*/g, '').trim();
+  
+  // Check NAICS code first if available
+  if (naicsCode) {
+    // Construction NAICS codes
+    if (naicsCode === '23' || naicsCode.startsWith('23')) {
+      return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Construction - NAICS ' + naicsCode };
+    }
+    // Wholesale NAICS
+    if (naicsCode === '42' || naicsCode.startsWith('42')) {
+      return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Wholesale - NAICS ' + naicsCode };
+    }
+    // Transportation/Trucking
+    if (naicsCode.startsWith('48') || naicsCode.startsWith('49') || naicsCode === '484') {
+      return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Transportation/Trucking - NAICS ' + naicsCode };
+    }
+    // Retail
+    if (naicsCode === '44' || naicsCode === '45' || naicsCode.startsWith('44') || naicsCode.startsWith('45')) {
+      if (cleanSectorStr.includes('wholesale') || subsectorStr.includes('wholesale')) {
+        return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Wholesale Retail - NAICS ' + naicsCode };
+      }
+      return { ...INDUSTRY_FAVORABILITY.favorable, reason: 'Retail - NAICS ' + naicsCode };
+    }
+    // Medical
+    if (naicsCode.startsWith('621')) {
+      if (naicsCode === '6216') {
+        return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Home Health Care - NAICS ' + naicsCode };
+      }
+      return { ...INDUSTRY_FAVORABILITY.favorable, reason: 'Medical Offices - NAICS ' + naicsCode };
+    }
+  }
+  
   // Check each favorability category
   for (const [key, category] of Object.entries(INDUSTRY_FAVORABILITY)) {
     for (const industry of category.industries) {
       const industryName = industry.name.toLowerCase();
       
       // Check for direct match or contains
-      if (sectorStr.includes(industryName) || 
+      if (cleanSectorStr.includes(industryName) || 
           subsectorStr.includes(industryName) ||
-          industryName.includes(sectorStr) ||
+          industryName.includes(cleanSectorStr) ||
           (subsectorStr && industryName.includes(subsectorStr))) {
         
         // Check for restrictions if any
         if (industry.restrictions && 
-            (sectorStr.includes('wholesale') || subsectorStr.includes('wholesale'))) {
+            (cleanSectorStr.includes('wholesale') || subsectorStr.includes('wholesale'))) {
           // If it's a restricted subsector, move to unfavorable
           return {
             ...INDUSTRY_FAVORABILITY.unfavorable,
-            reason: industry.restrictions
+            reason: industry.restrictions,
+            naics: naicsCode || industry.naics
           };
         }
         
         return {
           ...category,
           matchedIndustry: industry.name,
-          naics: industry.naics
+          naics: naicsCode || industry.naics
         };
       }
     }
   }
   
   // Special cases for common industry patterns
-  if (sectorStr.includes('health') || sectorStr.includes('medical')) {
-    if (sectorStr.includes('home health')) {
-      return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Home Health Care - Unfavorable' };
+  if (cleanSectorStr.includes('construction') || subsectorStr.includes('construction') || 
+      cleanSectorStr.includes('contractor') || subsectorStr.includes('contractor')) {
+    return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Construction/Contracting', naics: naicsCode || '23' };
+  }
+  
+  if (cleanSectorStr.includes('health') || cleanSectorStr.includes('medical')) {
+    if (cleanSectorStr.includes('home health')) {
+      return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Home Health Care - Unfavorable', naics: naicsCode };
     }
-    return { ...INDUSTRY_FAVORABILITY.favorable, reason: 'Medical/Health Services' };
+    return { ...INDUSTRY_FAVORABILITY.favorable, reason: 'Medical/Health Services', naics: naicsCode };
   }
   
-  if (sectorStr.includes('food') || sectorStr.includes('beverage')) {
-    if (sectorStr.includes('truck')) {
-      return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Food Trucks - Unfavorable' };
+  if (cleanSectorStr.includes('food') || cleanSectorStr.includes('beverage')) {
+    if (cleanSectorStr.includes('truck')) {
+      return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Food Trucks - Unfavorable', naics: naicsCode };
     }
-    return { ...INDUSTRY_FAVORABILITY.favorable, reason: 'Food Services' };
+    return { ...INDUSTRY_FAVORABILITY.favorable, reason: 'Food Services', naics: naicsCode };
   }
   
-  if (sectorStr.includes('tech') || sectorStr.includes('software') || sectorStr.includes('saas')) {
-    return { ...INDUSTRY_FAVORABILITY.favorable, reason: 'Technology/Software' };
+  if (cleanSectorStr.includes('tech') || cleanSectorStr.includes('software') || cleanSectorStr.includes('saas')) {
+    return { ...INDUSTRY_FAVORABILITY.favorable, reason: 'Technology/Software', naics: naicsCode };
   }
   
-  if (sectorStr.includes('transport') || sectorStr.includes('truck') || sectorStr.includes('logistics')) {
-    return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Transportation/Trucking' };
-  }
-  
-  if (sectorStr.includes('construction') || sectorStr.includes('contractor')) {
-    return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Construction/Contracting' };
+  if (cleanSectorStr.includes('transport') || cleanSectorStr.includes('truck') || cleanSectorStr.includes('logistics')) {
+    return { ...INDUSTRY_FAVORABILITY.unfavorable, reason: 'Transportation/Trucking', naics: naicsCode };
   }
   
   // Default to neutral for unrecognized industries
@@ -173,14 +212,148 @@ const getIndustryFavorability = (industrySector, industrySubsector) => {
     level: 'Neutral',
     score: 5,
     color: 'text-gray-600 bg-gray-100',
-    reason: 'Industry not in favorability list - defaulting to neutral'
+    reason: 'Industry not in favorability list - defaulting to neutral',
+    naics: naicsCode
   };
 };
 
 export const OverviewSection = ({ loan }) => {
+  // Calculate accurate missed payments accounting for ACH reversals and fees
+  const calculateAccurateMissedPayments = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayString = today.toISOString().split('T')[0];
+    
+    // Define fee transaction types that should NOT count as payments
+    const FEE_TRANSACTION_TYPES = [
+      'origination fee collection',
+      'initiation collection',
+      'merchant fee collection',
+      'stamp tax fee',
+      'nsf fees',
+      'legal fees',
+      'legal fee',
+      'merchant fee',
+      'origination fee',
+      'initiation',
+      'restructure penalty',
+      'loan payout',
+      'cost of capital',
+      'capital'
+    ];
+    
+    // Process transactions to identify reversed payments
+    const reversedTransactionIds = new Set();
+    const processedTransactions = [];
+    
+    // Sort transactions by date and time
+    const sortedTransactions = [...loan.transactions]
+      .sort((a, b) => {
+        const dateCompare = new Date(a.date) - new Date(b.date);
+        if (dateCompare !== 0) return dateCompare;
+        if (a.typeName?.includes('REVERSAL')) return 1;
+        if (b.typeName?.includes('REVERSAL')) return -1;
+        return 0;
+      });
+    
+    // Identify reversed transactions
+    sortedTransactions.forEach((trans, idx) => {
+      if (trans.typeName?.toLowerCase().includes('reversal') || 
+          trans.typeName?.toLowerCase().includes('nsf')) {
+        // Look for the original transaction to reverse
+        for (let i = idx - 1; i >= 0; i--) {
+          const prevTrans = sortedTransactions[i];
+          if (prevTrans.credit === trans.debit && 
+              !reversedTransactionIds.has(i) &&
+              prevTrans.typeName?.toLowerCase().includes('ach')) {
+            reversedTransactionIds.add(i);
+            reversedTransactionIds.add(idx);
+            break;
+          }
+        }
+      }
+    });
+    
+    // Filter out reversed transactions, reversals, and fee collections
+    sortedTransactions.forEach((trans, idx) => {
+      if (reversedTransactionIds.has(idx)) return;
+      if (!trans.credit || trans.credit <= 0) return;
+      
+      const transTypeLower = (trans.typeName || '').toLowerCase();
+      const isFeeTransaction = FEE_TRANSACTION_TYPES.some(feeType => 
+        transTypeLower.includes(feeType)
+      );
+      if (isFeeTransaction) return;
+      
+      processedTransactions.push({
+        ...trans,
+        normalizedDate: trans.date.split('T')[0],
+        id: trans.id || `trans_${idx}`
+      });
+    });
+    
+    // Calculate how many payment periods are satisfied
+    const installmentAmount = loan.installmentAmount || loan.instalmentAmount || 14534.88;
+    let availablePayments = [...processedTransactions];
+    let satisfiedPeriods = 0;
+    let expectedPeriods = 0;
+    
+    // Process each payment period
+    loan.paydates.forEach((paydate) => {
+      const paydateStr = paydate.date.split('T')[0];
+      if (paydateStr >= todayString) return; // Skip future payments
+      
+      expectedPeriods++;
+      let remainingNeeded = paydate.amount;
+      let periodSatisfied = false;
+      
+      // Try to satisfy this period with available payments
+      for (let i = 0; i < availablePayments.length && remainingNeeded > 0.01; i++) {
+        const payment = availablePayments[i];
+        
+        if (payment.credit >= remainingNeeded * 0.99) {
+          // This payment completes the period
+          remainingNeeded = 0;
+          periodSatisfied = true;
+          
+          // If there's excess, keep it for the next period
+          if (payment.credit > paydate.amount * 1.01) {
+            availablePayments[i] = {
+              ...payment,
+              credit: payment.credit - paydate.amount
+            };
+          } else {
+            availablePayments.splice(i, 1);
+            i--;
+          }
+          break;
+        } else if (payment.credit >= installmentAmount * 0.1) {
+          // Partial payment
+          remainingNeeded -= payment.credit;
+          availablePayments.splice(i, 1);
+          i--;
+        }
+      }
+      
+      if (periodSatisfied || remainingNeeded <= 0.01) {
+        satisfiedPeriods++;
+      }
+    });
+    
+    return expectedPeriods - satisfiedPeriods;
+  };
+  
+  // Use the accurate calculation
+  const accurateMissedPayments = calculateAccurateMissedPayments();
+  
   // Calculate key performance indicators
   const calculateKPIs = () => {
-    const totalExpected = loan.statusCalculation.totalExpected * loan.installmentAmount;
+    const totalExpected = loan.paydates.filter(p => {
+      const paydateStr = p.date.split('T')[0];
+      const todayStr = new Date().toISOString().split('T')[0];
+      return paydateStr < todayStr;
+    }).length * loan.installmentAmount;
+    
     const totalReceived = loan.statusCalculation.totalReceived;
     const collectionRate = totalExpected > 0 ? (totalReceived / totalExpected) * 100 : 0;
     
@@ -262,12 +435,12 @@ export const OverviewSection = ({ loan }) => {
       ficoScore: { score: 0, max: 20, label: 'FICO Score' },
       debtRatio: { score: 0, max: 25, label: 'Debt/Revenue Ratio' },
       businessAge: { score: 0, max: 15, label: 'Business Age' },
-      industryRisk: { score: 0, max: 20, label: 'Industry Risk' } // Increased max from 10 to 20
+      industryRisk: { score: 0, max: 20, label: 'Industry Risk' }
     };
     
-    // Payment History (0-30 points)
-    if (loan.statusCalculation.missedPayments > 0) {
-      breakdown.paymentHistory.score = Math.min(30, loan.statusCalculation.missedPayments * 7.5);
+    // Payment History (0-30 points) - Use accurate missed payments
+    if (accurateMissedPayments > 0) {
+      breakdown.paymentHistory.score = Math.min(30, accurateMissedPayments * 7.5);
     }
     
     // FICO Score (0-20 points)
@@ -282,7 +455,7 @@ export const OverviewSection = ({ loan }) => {
     
     // Debt/Revenue Ratio (0-25 points)
     const revenue = loan.lead?.avgRevenue || 0;
-    const debt = loan.lead?.avgMCADebts || 0;
+    const debt = loan.lead?.avgMCADebits || 0;
     if (revenue > 0) {
       const ratio = debt / revenue;
       if (ratio > .15 ) {
@@ -303,7 +476,7 @@ export const OverviewSection = ({ loan }) => {
       breakdown.businessAge.score = 5;
     }
     
-    // Industry Risk (0-20 points) - Now using favorability data
+    // Industry Risk (0-20 points) - Using favorability data
     breakdown.industryRisk.score = industryFavorability.score;
     
     const totalScore = Object.values(breakdown).reduce((sum, item) => sum + item.score, 0);
@@ -313,11 +486,11 @@ export const OverviewSection = ({ loan }) => {
   
   const { breakdown: riskBreakdown, totalScore: calculatedRiskScore } = calculateRiskScoreBreakdown();
   
-  // Risk level determination
+  // Risk level determination - Use accurate missed payments
   const getRiskLevel = () => {
     if (loan.status === 'default' || loan.status === 'restructured') return 'Critical';
-    if (loan.statusCalculation.missedPayments >= 2) return 'High';
-    if (loan.statusCalculation.missedPayments === 1 || kpis.dscr < 1.5) return 'Medium';
+    if (accurateMissedPayments >= 2) return 'High';
+    if (accurateMissedPayments === 1 || kpis.dscr < 1.5) return 'Medium';
     if (kpis.bankingHealth < 50 || loan.lead?.fico < 600) return 'Elevated';
     return 'Low';
   };
@@ -416,7 +589,7 @@ export const OverviewSection = ({ loan }) => {
         </div>
       </div>
       
-      {/* Industry Analysis - NEW SECTION */}
+      {/* Industry Analysis */}
       <div className="bg-white border rounded-lg p-4">
         <h3 className="text-lg font-semibold mb-3">Industry Analysis</h3>
         <div className="grid grid-cols-2 gap-4">
@@ -464,7 +637,7 @@ export const OverviewSection = ({ loan }) => {
                 />
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                {key === 'paymentHistory' && `${loan.statusCalculation.missedPayments} missed payments`}
+                {key === 'paymentHistory' && `${accurateMissedPayments} missed payments`}
                 {key === 'ficoScore' && `FICO: ${loan.lead?.fico || 'Unknown'}`}
                 {key === 'debtRatio' && `Ratio: ${kpis.dscr.toFixed(2)*100}%`}
                 {key === 'businessAge' && `${businessAge || 0} years`}
@@ -510,7 +683,7 @@ export const OverviewSection = ({ loan }) => {
           <div>
             <p className="text-xs text-gray-600">Debt to Revenue</p>
             <p className="text-lg font-semibold">
-              {formatCurrency(loan.lead?.avgMCADebts || 0)}/ 
+              {formatCurrency(loan.lead?.avgMCADebits || 0)}/ 
               {formatCurrency(loan.lead?.avgRevenue || 0)}
             </p>
             <p className="text-xs text-gray-500">Monthly cash flow</p>

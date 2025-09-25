@@ -135,11 +135,11 @@ export class ETLService {
           state: row[13] || 'Unknown',          // Column N
           installmentAmount: this.parseNumber(row[24]) || 1000, // Column Y
           
-          // Client information - using CORRECT columns
+          // Client information - using CORRECT columns with parseField for FALSE handling
           client: {
-            name: row[26] || row[4] || 'Unknown',  // Column AA - Client/Display Name
-            industrySector: row[27] || 'Unknown',  // Column AB - Industry Sector
-            industrySubsector: row[28] || 'General', // Column AC - Industry Subsector
+            name: this.parseField(row[26], row[4] || 'Unknown'),  // Column AA - Client/Display Name
+            industrySector: this.parseField(row[27], 'Unknown'),  // Column AB - Industry Sector/Display Name
+            industrySubsector: this.parseField(row[28], 'General'), // Column AC - Industry Subsector/Display Name
             dateFounded: this.parseDate(row[29]),  // Column AD - Date Founded
             addressLine1: row[30] || '',           // Column AE
             addressLine2: row[31] || '',           // Column AF
@@ -157,7 +157,7 @@ export class ETLService {
             id: row[39],                           // Column AN
             fico: parseInt(row[40]) || 650,        // Column AO - Lead/FICO
             avgMonthlyRevenue: this.parseNumber(row[71]) || 0, // Column AP
-            avgMCADebts: this.parseNumber(row[42]) || 0,       // Column AQ
+            avgMCADebits: this.parseNumber(row[42]) || 0,       // Column AQ
             avgRevenue: this.parseNumber(row[71]) || 0,        // Column BT
             avgDailyBalance: this.parseNumber(row[68]) || 0,    // Column BQ
             avgNSFs: this.parseNumber(row[69]) || 0,           // Column BR - Lead/Avg NSFs
@@ -165,7 +165,7 @@ export class ETLService {
             avgNumDeposits: this.parseNumber(row[64]) || 0,    // Column BM - Lead/Average Num Deposits
             avgNumCredits: this.parseNumber(row[65]) || 0,     // Column BN - Lead/Average Num Credits
             avgDeposits: this.parseNumber(row[66]) || 0,       // Column BO - Lead/Avg Deposits
-            avgCredits: this.parseNumber(row[67]) || 0, 
+            avgCredits: this.parseNumber(row[67]) || 0,        // Column BP - Lead/Avg Credits
             underwriter: row[73] || null, // Column BV - Lead/Underwriter/Display Name
             salesperson: row[74] || null, // Column BW - Lead/Salesperson/Display Name
             podleader: row[75] || null, // Column BX - Lead/Pod Leader/Display Name
@@ -265,122 +265,99 @@ export class ETLService {
     return loan;
   }
 
-  // Update the calculateLoanStatus method in ETLService.js
-
-calculateLoanStatus(loan) {
-  // Get today's date at midnight for consistent comparison
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayString = today.toISOString().split('T')[0];
-  
-  const calculation = {
-    today: todayString,
-    expectedPayments: [],
-    actualPayments: [],
-    allTransactions: [],
-    totalExpected: 0,
-    totalReceived: 0,
-    paymentsMade: 0,
-    missedPayments: 0,
-    isRestructured: loan.isRestructured || false,
-    status: 'current',
-    explanation: ''
-  };
-  
-  // Define which transaction types count as actual payments
-  const PAYMENT_TRANSACTION_TYPES = [
-    'ACH',
-    'Credit Card Payment Received',
-    'Credit Card',
-    'Debit Card',
-    'Successful Payment',
-    'Down Payment',
-    'Wire Transfer',
-    'Transfer to/from Advance',
-    'Dedicated - Recovered Collections',
-    'Check Deposit',
-    'Account Credit',
-    'Kalamata Credit',
-    'Repay Manual Debit'
-  ];
-  
-  // Define fee/non-payment transaction types
-  const FEE_TRANSACTION_TYPES = [
-    'Origination Fee Collection',
-    'Initiation Collection',
-    'Merchant Fee Collection',
-    'Stamp Tax Fee',
-    'Accrued Interest',
-    'NSF Fees',
-    'Legal Fees',
-    'Legal Fee',
-    'Merchant Fee',
-    'Origination Fee',
-    'Initiation',
-    'Restructure Penalty'
-  ];
-  
-  // Define restructure/settlement transaction types
-  const RESTRUCTURE_TRANSACTION_TYPES = [
-    'Settlement',
-    'Settlement - Renewal',
-    'Settlement Discount',
-    'Write-Off',
-    'Restructure Penalty',
-    'Discount Adjustment'
-  ];
-  
-  // Find expected payments - EXCLUDE today completely
-  calculation.expectedPayments = loan.paydates.filter(p => {
-    const paydateString = p.date.split('T')[0]; // Get just the date part
-    return paydateString < todayString; // String comparison works for ISO dates
-  });
-  calculation.totalExpected = calculation.expectedPayments.length;
-  
-  // Process all transactions and categorize them
-  loan.transactions.forEach(trans => {
-    const transactionInfo = {
-      date: trans.date,
-      amount: trans.credit || -trans.debit,
-      type: trans.typeName || 'Unknown',
-      category: 'other'
+  calculateLoanStatus(loan) {
+    // Get today's date at midnight for consistent comparison
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayString = today.toISOString().split('T')[0];
+    
+    const calculation = {
+      today: todayString,
+      expectedPayments: [],
+      actualPayments: [],
+      allTransactions: [],
+      totalExpected: 0,
+      totalReceived: 0,
+      paymentsMade: 0,
+      missedPayments: 0,
+      isRestructured: loan.isRestructured || false,
+      status: 'current',
+      explanation: ''
     };
     
-    // Categorize the transaction
-    if (trans.credit > 0) {
-      const typeName = trans.typeName || '';
+    // Define which transaction types count as actual payments
+    const PAYMENT_TRANSACTION_TYPES = [
+      'ACH',
+      'Credit Card Payment Received',
+      'Credit Card',
+      'Debit Card',
+      'Successful Payment',
+      'Down Payment',
+      'Wire Transfer',
+      'Transfer to/from Advance',
+      'Dedicated - Recovered Collections',
+      'Check Deposit',
+      'Account Credit',
+      'Kalamata Credit',
+      'Repay Manual Debit'
+    ];
+    
+    // Define fee/non-payment transaction types
+    const FEE_TRANSACTION_TYPES = [
+      'Origination Fee Collection',
+      'Initiation Collection',
+      'Merchant Fee Collection',
+      'Stamp Tax Fee',
+      'Accrued Interest',
+      'NSF Fees',
+      'Legal Fees',
+      'Legal Fee',
+      'Merchant Fee',
+      'Origination Fee',
+      'Initiation',
+      'Restructure Penalty'
+    ];
+    
+    // Define restructure/settlement transaction types
+    const RESTRUCTURE_TRANSACTION_TYPES = [
+      'Settlement',
+      'Settlement - Renewal',
+      'Settlement Discount',
+      'Write-Off',
+      'Restructure Penalty',
+      'Discount Adjustment'
+    ];
+    
+    // Find expected payments - EXCLUDE today completely
+    calculation.expectedPayments = loan.paydates.filter(p => {
+      const paydateString = p.date.split('T')[0]; // Get just the date part
+      return paydateString < todayString; // String comparison works for ISO dates
+    });
+    calculation.totalExpected = calculation.expectedPayments.length;
+    
+    // Process all transactions and categorize them
+    loan.transactions.forEach(trans => {
+      const transactionInfo = {
+        date: trans.date,
+        amount: trans.credit || -trans.debit,
+        type: trans.typeName || 'Unknown',
+        category: 'other'
+      };
       
-      // Check if it's a restructure transaction
-      if (RESTRUCTURE_TRANSACTION_TYPES.some(type => 
-        typeName.toLowerCase().includes(type.toLowerCase()))) {
-        calculation.isRestructured = true;
-        transactionInfo.category = 'restructure';
-      }
-      // Check if it's an actual payment
-      else if (PAYMENT_TRANSACTION_TYPES.some(type => 
-        typeName.toLowerCase() === type.toLowerCase() ||
-        (type.toLowerCase().includes('transfer') && typeName.toLowerCase().includes('transfer')))) {
-        transactionInfo.category = 'payment';
-        calculation.totalReceived += trans.credit;
-        calculation.actualPayments.push({
-          date: trans.date,
-          amount: trans.credit,
-          type: trans.typeName
-        });
-      }
-      // Check if it's a fee
-      else if (FEE_TRANSACTION_TYPES.some(type => 
-        typeName.toLowerCase().includes(type.toLowerCase()))) {
-        transactionInfo.category = 'fee';
-      }
-      // Default case - if we're not sure, check for keywords
-      else {
-        const lowerTypeName = typeName.toLowerCase();
-        if (lowerTypeName.includes('payment') || 
-            (lowerTypeName.includes('collection') && 
-             !lowerTypeName.includes('fee') && 
-             !lowerTypeName.includes('origination') && 
-             !lowerTypeName.includes('initiation'))) {
+      // Categorize the transaction
+      if (trans.credit > 0) {
+        const typeName = trans.typeName || '';
+        
+        // Check if it's a restructure transaction
+        if (RESTRUCTURE_TRANSACTION_TYPES.some(type => 
+          typeName.toLowerCase().includes(type.toLowerCase()))) {
+          calculation.isRestructured = true;
+          transactionInfo.category = 'restructure';
+        }
+        // Check if it's an actual payment
+        else if (PAYMENT_TRANSACTION_TYPES.some(type => 
+          typeName.toLowerCase() === type.toLowerCase() ||
+          (type.toLowerCase().includes('transfer') && typeName.toLowerCase().includes('transfer')))) {
           transactionInfo.category = 'payment';
           calculation.totalReceived += trans.credit;
           calculation.actualPayments.push({
@@ -388,55 +365,76 @@ calculateLoanStatus(loan) {
             amount: trans.credit,
             type: trans.typeName
           });
-        } else {
-          transactionInfo.category = 'other';
+        }
+        // Check if it's a fee
+        else if (FEE_TRANSACTION_TYPES.some(type => 
+          typeName.toLowerCase().includes(type.toLowerCase()))) {
+          transactionInfo.category = 'fee';
+        }
+        // Default case - if we're not sure, check for keywords
+        else {
+          const lowerTypeName = typeName.toLowerCase();
+          if (lowerTypeName.includes('payment') || 
+              (lowerTypeName.includes('collection') && 
+               !lowerTypeName.includes('fee') && 
+               !lowerTypeName.includes('origination') && 
+               !lowerTypeName.includes('initiation'))) {
+            transactionInfo.category = 'payment';
+            calculation.totalReceived += trans.credit;
+            calculation.actualPayments.push({
+              date: trans.date,
+              amount: trans.credit,
+              type: trans.typeName
+            });
+          } else {
+            transactionInfo.category = 'other';
+          }
         }
       }
+      
+      calculation.allTransactions.push(transactionInfo);
+      
+      // Also check for restructure in references
+      if (trans.reference?.toLowerCase().includes('restructur')) {
+        calculation.isRestructured = true;
+      }
+    });
+    
+    // Calculate payments made - FIX THE MATH
+    if (loan.installmentAmount > 0) {
+      // Round to 2 decimal places to avoid floating point issues
+      const totalRounded = Math.round(calculation.totalReceived * 100) / 100;
+      const installmentRounded = Math.round(loan.installmentAmount * 100) / 100;
+      
+      // Calculate number of payments
+      calculation.paymentsMade = Math.round(totalRounded / installmentRounded);
     }
     
-    calculation.allTransactions.push(transactionInfo);
+    calculation.missedPayments = Math.max(0, calculation.totalExpected - calculation.paymentsMade);
     
-    // Also check for restructure in references
-    if (trans.reference?.toLowerCase().includes('restructur')) {
-      calculation.isRestructured = true;
+    // Determine status
+    if (calculation.isRestructured) {
+      calculation.status = 'restructured';
+      calculation.explanation = 'Loan has been restructured';
+    } else if (calculation.missedPayments === 0) {
+      calculation.status = 'current';
+      calculation.explanation = 'All payments up to date';
+    } else if (calculation.missedPayments === 1) {
+      calculation.status = 'delinquent_1';
+      calculation.explanation = '1 payment missed';
+    } else if (calculation.missedPayments === 2) {
+      calculation.status = 'delinquent_2';
+      calculation.explanation = '2 payments missed';
+    } else if (calculation.missedPayments === 3) {
+      calculation.status = 'delinquent_3';
+      calculation.explanation = '3 payments missed';
+    } else {
+      calculation.status = 'default';
+      calculation.explanation = `${calculation.missedPayments} payments missed (4+ = default)`;
     }
-  });
-  
-  // Calculate payments made - FIX THE MATH
-  if (loan.installmentAmount > 0) {
-    // Round to 2 decimal places to avoid floating point issues
-    const totalRounded = Math.round(calculation.totalReceived * 100) / 100;
-    const installmentRounded = Math.round(loan.installmentAmount * 100) / 100;
     
-    // Calculate number of payments
-    calculation.paymentsMade = Math.round(totalRounded / installmentRounded);
+    return calculation;
   }
-  
-  calculation.missedPayments = Math.max(0, calculation.totalExpected - calculation.paymentsMade);
-  
-  // Determine status
-  if (calculation.isRestructured) {
-    calculation.status = 'restructured';
-    calculation.explanation = 'Loan has been restructured';
-  } else if (calculation.missedPayments === 0) {
-    calculation.status = 'current';
-    calculation.explanation = 'All payments up to date';
-  } else if (calculation.missedPayments === 1) {
-    calculation.status = 'delinquent_1';
-    calculation.explanation = '1 payment missed';
-  } else if (calculation.missedPayments === 2) {
-    calculation.status = 'delinquent_2';
-    calculation.explanation = '2 payments missed';
-  } else if (calculation.missedPayments === 3) {
-    calculation.status = 'delinquent_3';
-    calculation.explanation = '3 payments missed';
-  } else {
-    calculation.status = 'default';
-    calculation.explanation = `${calculation.missedPayments} payments missed (4+ = default)`;
-  }
-  
-  return calculation;
-}
 
   matchPaymentsToSchedule(loan) {
     const matches = [];
@@ -538,7 +536,7 @@ calculateLoanStatus(loan) {
     
     // Adjust based on revenue to debt ratio
     const avgMonthlyRevenue = loan.lead?.avgMonthlyRevenue || 0;
-    const avgMCADebts = loan.lead?.avgMCADebts || 1;
+    const avgMCADebts = loan.lead?.avgMCADebits || 1;
     const revenueToDebt = avgMCADebts > 0 ? avgMonthlyRevenue / avgMCADebts : 10;
     
     if (revenueToDebt < 2) score += 15;
@@ -548,22 +546,67 @@ calculateLoanStatus(loan) {
     return Math.max(0, Math.min(100, score));
   }
 
+  // IMPROVED parseDate to fix timezone offset issues
   parseDate(value) {
     if (!value) return null;
-    if (value instanceof Date) return value.toISOString().split('T')[0];
-    if (typeof value === 'number') {
-      // Excel date serial number
-      const date = new Date((value - 25569) * 86400 * 1000);
-      return date.toISOString().split('T')[0];
+    
+    // If it's a Date object from Excel
+    if (value instanceof Date) {
+      // Get the date components in local time to avoid timezone shifts
+      const year = value.getFullYear();
+      const month = String(value.getMonth() + 1).padStart(2, '0');
+      const day = String(value.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
     }
+    
+    // If it's an Excel serial number
+    if (typeof value === 'number') {
+      // Excel dates start from 1900-01-01 (with leap year bug for 1900)
+      // Adjust for Excel's date system
+      const excelEpoch = new Date(1900, 0, 1);
+      const msPerDay = 24 * 60 * 60 * 1000;
+      
+      // Excel incorrectly treats 1900 as a leap year, so we need to adjust
+      const adjustedValue = value > 59 ? value - 1 : value;
+      
+      // Calculate the date
+      const date = new Date(excelEpoch.getTime() + (adjustedValue - 1) * msPerDay);
+      
+      // Get components in local time to avoid timezone shifts
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    
+    // If it's a string
     if (typeof value === 'string') {
+      // If already in YYYY-MM-DD format, return as is
+      if (value.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        return value;
+      }
+      
       // Try to parse various date formats
       const parsed = new Date(value);
       if (!isNaN(parsed.getTime())) {
-        return parsed.toISOString().split('T')[0];
+        // Get the date components to avoid timezone issues
+        const year = parsed.getFullYear();
+        const month = String(parsed.getMonth() + 1).padStart(2, '0');
+        const day = String(parsed.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
       }
     }
+    
+    // If we can't parse it, return as string
     return String(value);
+  }
+
+  // Helper to parse fields and handle FALSE values from Excel
+  parseField(value, defaultValue = '') {
+    if (!value || value === 'FALSE' || value === 'false' || value === false) {
+      return defaultValue;
+    }
+    return value;
   }
 
   parseNumber(value) {
