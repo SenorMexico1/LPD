@@ -43,29 +43,56 @@ export const ScheduleSection = ({ loan }) => {
     return 'bg-gray-200 text-gray-800';
   };
 
-  // Helper to normalize dates
+  // Helper to normalize dates - FIXED to avoid timezone issues
   const normalizeDate = (dateStr) => {
     if (!dateStr) return null;
     
-    let date;
-    if (typeof dateStr === 'string') {
-      if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        date = new Date(dateStr + 'T12:00:00');
-      } else if (dateStr.includes('T')) {
-        date = new Date(dateStr);
-      } else {
-        date = new Date(dateStr);
-      }
-    } else if (dateStr instanceof Date) {
-      date = new Date(dateStr);
-    } else {
-      return null;
+    // If it's already in YYYY-MM-DD format, return as-is
+    if (typeof dateStr === 'string' && dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      return dateStr;
     }
     
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    // For other string formats or Date objects, parse carefully
+    let year, month, day;
+    
+    if (typeof dateStr === 'string') {
+      // Check if it includes time information
+      if (dateStr.includes('T') || dateStr.includes(' ')) {
+        // Parse as ISO or datetime string
+        const parts = dateStr.split(/[T ]/)[0].split('-');
+        if (parts.length === 3) {
+          [year, month, day] = parts;
+          return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        }
+      }
+      
+      // Try parsing MM/DD/YYYY format
+      if (dateStr.includes('/')) {
+        const parts = dateStr.split('/');
+        if (parts.length === 3) {
+          [month, day, year] = parts;
+          return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        }
+      }
+      
+      // Last resort: try to parse with Date object but extract UTC components
+      const date = new Date(dateStr);
+      if (!isNaN(date.getTime())) {
+        // Use UTC methods to avoid timezone shift
+        year = date.getUTCFullYear();
+        month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        day = String(date.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    } else if (dateStr instanceof Date) {
+      // For Date objects, use local date components
+      year = dateStr.getFullYear();
+      month = String(dateStr.getMonth() + 1).padStart(2, '0');
+      day = String(dateStr.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    
+    return null;
   };
 
   // Format date for display
@@ -75,6 +102,18 @@ export const ScheduleSection = ({ loan }) => {
     if (!normalized) return '';
     const [year, month, day] = normalized.split('-');
     return `${parseInt(month)}/${parseInt(day)}/${year}`;
+  };
+  
+  // Helper to calculate days difference between two date strings
+  const daysDifference = (date1Str, date2Str) => {
+    const [y1, m1, d1] = date1Str.split('-').map(Number);
+    const [y2, m2, d2] = date2Str.split('-').map(Number);
+    
+    // Create dates at noon local time to avoid DST issues
+    const date1 = new Date(y1, m1 - 1, d1, 12, 0, 0);
+    const date2 = new Date(y2, m2 - 1, d2, 12, 0, 0);
+    
+    return Math.round((date1 - date2) / (1000 * 60 * 60 * 24));
   };
 
   // Enhanced schedule matching with ACH Reversal detection and Fee exclusion
@@ -183,10 +222,7 @@ export const ScheduleSection = ({ loan }) => {
       const candidateTransactions = processedTransactions.filter(trans => {
         if (usedTransactions.has(trans.id)) return false;
         
-        const daysDiff = Math.floor(
-          (new Date(trans.normalizedDate) - new Date(paydateNorm)) / 
-          (1000 * 60 * 60 * 24)
-        );
+        const daysDiff = daysDifference(trans.normalizedDate, paydateNorm);
         
         // Consider transactions within -7 to +30 days of the due date
         return daysDiff >= -7 && daysDiff <= 30;
@@ -194,8 +230,8 @@ export const ScheduleSection = ({ loan }) => {
       
       // Sort candidates by date proximity to the paydate
       candidateTransactions.sort((a, b) => {
-        const aDiff = Math.abs(new Date(a.normalizedDate) - new Date(paydateNorm));
-        const bDiff = Math.abs(new Date(b.normalizedDate) - new Date(paydateNorm));
+        const aDiff = Math.abs(daysDifference(a.normalizedDate, paydateNorm));
+        const bDiff = Math.abs(daysDifference(b.normalizedDate, paydateNorm));
         return aDiff - bDiff;
       });
       
@@ -203,10 +239,7 @@ export const ScheduleSection = ({ loan }) => {
       for (const trans of candidateTransactions) {
         if (totalPaid >= paydate.amount * 0.99) break;
         
-        const daysDiff = Math.floor(
-          (new Date(trans.normalizedDate) - new Date(paydateNorm)) / 
-          (1000 * 60 * 60 * 24)
-        );
+        const daysDiff = daysDifference(trans.normalizedDate, paydateNorm);
         
         const remainingNeeded = paydate.amount - totalPaid;
         
@@ -319,7 +352,11 @@ export const ScheduleSection = ({ loan }) => {
       }
     });
     
-    return matches.sort((a, b) => new Date(a.date) - new Date(b.date));
+    return matches.sort((a, b) => {
+      const dateA = normalizeDate(a.date);
+      const dateB = normalizeDate(b.date);
+      return dateA.localeCompare(dateB);
+    });
   };
 
   // Progress View - Bucket filling approach
@@ -331,7 +368,11 @@ export const ScheduleSection = ({ loan }) => {
     // Create a pool of all valid payments
     const paymentPool = [...processedTransactions]
       .filter(t => t.credit > 0)
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+      .sort((a, b) => {
+        const dateA = normalizeDate(a.date);
+        const dateB = normalizeDate(b.date);
+        return dateA.localeCompare(dateB);
+      });
     
     let availablePayments = [...paymentPool];
     
@@ -355,7 +396,7 @@ export const ScheduleSection = ({ loan }) => {
             transaction: payment,
             amountApplied: remainingNeeded,
             excess: payment.credit - remainingNeeded,
-            daysDiff: Math.floor((new Date(payment.normalizedDate) - new Date(paydateNorm)) / (1000 * 60 * 60 * 24))
+            daysDiff: daysDifference(payment.normalizedDate, paydateNorm)
           });
           
           totalApplied += remainingNeeded;
@@ -378,7 +419,7 @@ export const ScheduleSection = ({ loan }) => {
             transaction: payment,
             amountApplied: payment.credit,
             excess: 0,
-            daysDiff: Math.floor((new Date(payment.normalizedDate) - new Date(paydateNorm)) / (1000 * 60 * 60 * 24))
+            daysDiff: daysDifference(payment.normalizedDate, paydateNorm)
           });
           
           totalApplied += payment.credit;
@@ -431,12 +472,14 @@ export const ScheduleSection = ({ loan }) => {
   };
   
   // Calculate how many payments behind
-  const totalExpectedPayments = progressMatches.filter(m => 
-    m.expectedAmount > 0 && new Date(m.date) < today
-  ).length;
-  const totalCompletedPayments = progressMatches.filter(m => 
-    m.status === 'satisfied' && new Date(m.date) < today
-  ).length;
+  const totalExpectedPayments = progressMatches.filter(m => {
+    const mDate = normalizeDate(m.date);
+    return m.expectedAmount > 0 && mDate < todayString;
+  }).length;
+  const totalCompletedPayments = progressMatches.filter(m => {
+    const mDate = normalizeDate(m.date);
+    return m.status === 'satisfied' && mDate < todayString;
+  }).length;
   const paymentsBehind = totalExpectedPayments - totalCompletedPayments;
   
   return (

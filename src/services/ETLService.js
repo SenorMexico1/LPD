@@ -1,3 +1,4 @@
+// src/services/ETLService.js
 import * as XLSX from 'xlsx';
 
 export class ETLService {
@@ -82,9 +83,10 @@ export class ETLService {
           const data = new Uint8Array(e.target.result);
           const workbook = XLSX.read(data, { 
             type: 'array',
-            cellDates: true,
+            cellDates: false,  // Don't auto-parse dates to avoid timezone issues
             cellNF: false,
-            cellText: false
+            cellText: false,
+            raw: true  // Get raw values to handle dates ourselves
           });
           
           const sheetName = workbook.SheetNames[0];
@@ -92,7 +94,7 @@ export class ETLService {
           const rawData = XLSX.utils.sheet_to_json(sheet, { 
             header: 1, 
             defval: null,
-            raw: false,
+            raw: true,  // Get raw values including Excel serial dates
             dateNF: 'yyyy-mm-dd'
           });
           
@@ -546,36 +548,39 @@ export class ETLService {
     return Math.max(0, Math.min(100, score));
   }
 
-  // IMPROVED parseDate to fix timezone offset issues
+  // IMPROVED parseDate to fix timezone offset issues - FIXED VERSION
   parseDate(value) {
     if (!value) return null;
     
-    // If it's a Date object from Excel
-    if (value instanceof Date) {
-      // Get the date components in local time to avoid timezone shifts
-      const year = value.getFullYear();
-      const month = String(value.getMonth() + 1).padStart(2, '0');
-      const day = String(value.getDate()).padStart(2, '0');
+    // If it's an Excel serial number (dates are stored as numbers in Excel)
+    if (typeof value === 'number') {
+      // Excel dates start from 1899-12-30 (not 1900-01-01 due to leap year bug)
+      // Day 1 = December 31, 1899
+      // Excel incorrectly treats 1900 as a leap year
+      const excelEpoch = new Date(1899, 11, 30); // December 30, 1899
+      const msPerDay = 24 * 60 * 60 * 1000;
+      
+      // Excel has a leap year bug for 1900, so we need to adjust
+      // Dates after Feb 28, 1900 need to be adjusted by 1
+      const adjustedValue = value > 60 ? value - 1 : value;
+      
+      // Calculate the date by adding days to epoch
+      const resultDate = new Date(excelEpoch.getTime() + adjustedValue * msPerDay);
+      
+      // Extract components using UTC to avoid timezone shifts
+      const year = resultDate.getUTCFullYear();
+      const month = String(resultDate.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(resultDate.getUTCDate()).padStart(2, '0');
+      
       return `${year}-${month}-${day}`;
     }
     
-    // If it's an Excel serial number
-    if (typeof value === 'number') {
-      // Excel dates start from 1900-01-01 (with leap year bug for 1900)
-      // Adjust for Excel's date system
-      const excelEpoch = new Date(1900, 0, 1);
-      const msPerDay = 24 * 60 * 60 * 1000;
-      
-      // Excel incorrectly treats 1900 as a leap year, so we need to adjust
-      const adjustedValue = value > 59 ? value - 1 : value;
-      
-      // Calculate the date
-      const date = new Date(excelEpoch.getTime() + (adjustedValue - 1) * msPerDay);
-      
-      // Get components in local time to avoid timezone shifts
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
+    // If it's a Date object (shouldn't happen with raw: true, but just in case)
+    if (value instanceof Date) {
+      // Use UTC methods to avoid timezone shifts
+      const year = value.getUTCFullYear();
+      const month = String(value.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(value.getUTCDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     }
     
@@ -589,7 +594,7 @@ export class ETLService {
       // Try to parse various date formats
       const parsed = new Date(value);
       if (!isNaN(parsed.getTime())) {
-        // Get the date components to avoid timezone issues
+        // For string dates, assume they're in local time
         const year = parsed.getFullYear();
         const month = String(parsed.getMonth() + 1).padStart(2, '0');
         const day = String(parsed.getDate()).padStart(2, '0');
