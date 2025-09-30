@@ -7,6 +7,7 @@ import { FileUploadButton } from './components/FileUpload';
 import { TrendDiscoveryTab } from './components/TrendDiscovery/TrendDiscoveryTab';
 import { ApiConfiguration } from './components/Settings/ApiConfiguration';
 import { ETLService } from './services/ETLService';
+import { CollectionsAnalysis } from './components/CollectionsAnalysis';
 
 function App() {
   const [activeTab, setActiveTab] = useState('summary');
@@ -151,6 +152,16 @@ function App() {
                   Trend Discovery
                 </button>
                 <button
+                  onClick={() => setActiveTab('collections')}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'collections'
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Collections Analysis
+                </button>
+                <button
                   onClick={() => setActiveTab('settings')}
                   className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
                     activeTab === 'settings'
@@ -193,7 +204,12 @@ function App() {
                   apiKey={apiKey}
                 />
               )}
-              
+              {activeTab === 'collections' && (
+                <CollectionsAnalysis 
+                  loans={loans}
+                  etlService={new ETLService()}
+                />
+              )}
               {activeTab === 'settings' && (
                 <div className="p-6">
                   <ApiConfiguration onApiKeyUpdate={handleApiKeyUpdate} />
