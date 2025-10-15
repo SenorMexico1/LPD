@@ -3,6 +3,7 @@
 /**
  * DataTransformer Module
  * Transforms raw Excel data into structured loan objects
+ * COMPLETE VERSION - Matching original working ETLService.js
  */
 
 import { COLUMN_MAP, DEFAULTS } from '../utils/constants';
@@ -40,8 +41,9 @@ export class DataTransformer {
           loans.push(this.finalizeLoan(currentLoan));
         }
         
-        // Start new loan
+        // Start new loan with COMPLETE structure matching original
         currentLoan = this.createLoanObject(row, rowIndex + 1);
+        
       } else if (currentLoan) {
         // This is a continuation row for the current loan
         this.appendToLoan(currentLoan, row, rowIndex + 1);
@@ -61,12 +63,13 @@ export class DataTransformer {
    * @private
    */
   isNewLoan(row) {
-    return row[this.columnMap.EXTERNAL_ID] !== null && 
-           row[this.columnMap.EXTERNAL_ID] !== '' && 
-           row[this.columnMap.EXTERNAL_ID] !== undefined &&
-           row[this.columnMap.LOAN_NUMBER] !== null && 
-           row[this.columnMap.LOAN_NUMBER] !== '' && 
-           row[this.columnMap.LOAN_NUMBER] !== undefined;
+    // Check columns A (0) and B (1) - External ID and Loan Number
+    return row[0] !== null && 
+           row[0] !== '' && 
+           row[0] !== undefined &&
+           row[1] !== null && 
+           row[1] !== '' && 
+           row[1] !== undefined;
   }
 
   /**
@@ -79,176 +82,131 @@ export class DataTransformer {
   }
 
   /**
-   * Create a new loan object from a row
+   * Create a new loan object from a row - COMPLETE VERSION
+   * Matching the original ETLService.js structure exactly
    * @private
    */
   createLoanObject(row, excelRowNumber) {
+    // Create loan object with COMPLETE structure from original
     const loan = {
       // Metadata
       rowNumber: excelRowNumber,
-      externalId: String(row[this.columnMap.EXTERNAL_ID]),
-      loanNumber: String(row[this.columnMap.LOAN_NUMBER]),
+      externalId: String(row[0]),           // Column A
+      loanNumber: String(row[1]),           // Column B
       
-      // Loan basics
-      active: parseBoolean(row[this.columnMap.ACTIVE_DEBIT_ORDER]),
-      loanAmount: parseNumber(row[this.columnMap.LOAN_AMOUNT]) || 0,
-      contractBalance: parseNumber(row[this.columnMap.CONTRACT_BALANCE]) || 0,
-      remainingAmount: parseNumber(row[this.columnMap.REMAINING_AMOUNT]) || 0,
+      // Active status
+      active: row[2] === true || row[2] === 'TRUE' || row[2] === 1 || row[2] === 'Yes',
       
-      // Status info
-      state: row[this.columnMap.STATE] || 'Unknown',
-      progress: parseNumber(row[this.columnMap.PROGRESS]) || 0,
-      daysOverdue: parseInt(row[this.columnMap.DAYS_OVERDUE]) || 0,
-      daysOverdueMPF: parseInt(row[this.columnMap.DAYS_OVERDUE_MPF]) || 0,
+      // Client ID
+      clientId: row[4],                     // Column E
       
-      // Payment info
-      installmentAmount: parseNumber(row[this.columnMap.INSTALLMENT_AMOUNT]) || this.defaults.INSTALLMENT_AMOUNT,
-      lastInstallmentAmount: parseNumber(row[this.columnMap.LAST_INSTALLMENT_AMOUNT]) || 0,
-      paymentFrequency: row[this.columnMap.PAYMENT_FREQUENCY] || 'Weekly',
+      // Financial amounts
+      contractBalance: this.parseNumberSafe(row[5]) || 0,  // Column F
+      loanAmount: this.parseNumberSafe(row[8]) || 0,       // Column I
+      amountSold: this.parseNumberSafe(row[3]) || 0,       // Column D
+      remainingAmount: this.parseNumberSafe(row[12]) || 0, // Column M
+      amountOverdue: this.parseNumberSafe(row[63]) || 0,   // Column BL
+      amountOverdueOnWriteOff: this.parseNumberSafe(row[62]) || 0, // Column BK
+      
+      // Days metrics
+      daysOverdue: parseInt(row[7]) || 0,   // Column H
+      daysOverdueMPF: parseInt(row[6]) || 0, // Column G
+      daysOverdueOnWriteOff: parseInt(row[61]) || 0, // Column BJ
+      
+      // Loan terms
+      loanTerm: parseInt(row[9]) || 0,      // Column J
+      progress: this.parseNumberSafe(row[11]) || 0, // Column L
+      state: row[13] || 'Unknown',          // Column N
+      
+      // Payment information
+      paymentFrequency: row[23] || 'Weekly', // Column X
+      installmentAmount: this.parseNumberSafe(row[24]) || 1000, // Column Y - default 1000
+      lastInstallmentAmount: this.parseNumberSafe(row[25]) || 0, // Column Z
       
       // Dates
-      payoutDate: parseDate(row[this.columnMap.PAYOUT_DATE]),
-      firstPaymentDate: parseDate(row[this.columnMap.FIRST_PAYMENT_DATE]),
-      endDate: parseDate(row[this.columnMap.END_DATE]),
-      compoundDate: parseDate(row[this.columnMap.COMPOUND_DATE]),
+      payoutDate: this.parseDateSafe(row[10]),      // Column K
+      firstPaymentDate: this.parseDateSafe(row[55]), // Column BD
+      endDate: this.parseDateSafe(row[58]),         // Column BG
+      compoundDate: this.parseDateSafe(row[60]),    // Column BI
       
       // Fees and interest
-      contractInterest: parseNumber(row[this.columnMap.CONTRACT_INTEREST]) || 0,
-      originationFee: parseNumber(row[this.columnMap.ORIGINATION_FEE]) || 0,
+      contractInterest: this.parseNumberSafe(row[53]) || 0, // Column BB
+      originationFee: this.parseNumberSafe(row[54]) || 0,   // Column BC
       
-      // Client information
-      client: this.extractClientInfo(row),
+      // Restructure flag
+      isRestructured: row[72] === true || row[72] === 'TRUE' || row[72] === 1 || row[72] === 'Yes', // Column BU
       
-      // Lead information
-      lead: this.extractLeadInfo(row),
+      // Client information - COMPLETE structure
+      client: {
+        name: this.parseFieldSafe(row[26], row[4] || 'Unknown'),  // Column AA
+        displayName: this.parseFieldSafe(row[26], row[4] || 'Unknown'),
+        industrySector: this.parseFieldSafe(row[27], 'Unknown'),  // Column AB
+        industrySubsector: this.parseFieldSafe(row[28], 'General'), // Column AC
+        dateFounded: this.parseDateSafe(row[29]),  // Column AD
+        addressLine1: row[30] || '',           // Column AE
+        addressLine2: row[31] || '',           // Column AF
+        addressLine3: row[32] || '',           // Column AG
+        city: row[33] || 'Unknown',            // Column AH
+        state: row[34] || row[13] || 'Unknown', // Column AI or N
+        country: row[35] || 'United States',   // Column AJ
+        zipCode: row[36] || '',                // Column AK
+        email: row[37] || '',                  // Column AL
+        primaryNo: row[38] || ''               // Column AM
+      },
       
-      // Flags
-      isRestructured: parseBoolean(row[this.columnMap.LOAN_RESTRUCTURED]),
+      // Lead information - COMPLETE structure
+      lead: {
+        id: row[39],                           // Column AN
+        fico: parseInt(row[40]) || 650,        // Column AO
+        avgMonthlyRevenue: this.parseNumberSafe(row[41]) || 0, // Column AP
+        avgMCADebits: this.parseNumberSafe(row[42]) || 0,      // Column AQ
+        avgMCADebts: this.parseNumberSafe(row[42]) || 0,       // Alias for compatibility
+        avgRevenue: this.parseNumberSafe(row[71]) || 0,        // Column BT
+        avgDailyBalance: this.parseNumberSafe(row[68]) || 0,   // Column BQ
+        avgNSFs: this.parseNumberSafe(row[69]) || 0,           // Column BR
+        avgNegativeDays: this.parseNumberSafe(row[70]) || 0,   // Column BS
+        avgNumDeposits: this.parseNumberSafe(row[64]) || 0,    // Column BM
+        avgNumCredits: this.parseNumberSafe(row[65]) || 0,     // Column BN
+        avgDeposits: this.parseNumberSafe(row[66]) || 0,       // Column BO
+        avgCredits: this.parseNumberSafe(row[67]) || 0,        // Column BP
+        underwriter: row[73] || null,          // Column BV
+        salesperson: row[74] || null,          // Column BW
+        podleader: row[75] || null,            // Column BX
+        podLeader: row[75] || null,            // Alias for compatibility
+        sellRate: this.parseNumberSafe(row[59]) || 0,  // Column BH
+        createdOn: this.parseDateSafe(row[56]),        // Column BE
+        closedDate: this.parseDateSafe(row[57])        // Column BF
+      },
       
-      // Write-off info
-      daysOverdueOnWriteOff: parseInt(row[this.columnMap.DAYS_OVERDUE_ON_WRITEOFF]) || 0,
-      amountOverdueOnWriteOff: parseNumber(row[this.columnMap.AMOUNT_OVERDUE_ON_WRITEOFF]) || 0,
-      amountOverdue: parseNumber(row[this.columnMap.AMOUNT_OVERDUE]) || 0,
-      
-      // Collections - will be populated from continuation rows
+      // CRITICAL: Initialize arrays for paydates and transactions
       paydates: [],
       transactions: []
     };
     
-    // Add initial paydate if present
-    if (row[this.columnMap.PAYDATE_DATE]) {
-      loan.paydates.push(this.createPaydate(row, excelRowNumber));
+    // Process initial paydate if present (Column O and P)
+    if (row[14]) {
+      loan.paydates.push({
+        date: this.parseDateSafe(row[14]),
+        amount: this.parseNumberSafe(row[15]) || loan.installmentAmount,
+        rowNumber: excelRowNumber
+      });
     }
     
-    // Add initial transaction if present
-    if (row[this.columnMap.TRANS_DATE]) {
-      loan.transactions.push(this.createTransaction(row, excelRowNumber));
+    // Process initial transaction if present (Columns Q through W)
+    if (row[16]) {
+      loan.transactions.push({
+        date: this.parseDateSafe(row[16]),
+        reference: row[17] || '',
+        typeId: row[18],
+        typeName: row[19] || '',
+        debit: this.parseNumberSafe(row[20]) || 0,
+        credit: this.parseNumberSafe(row[21]) || 0,
+        balance: this.parseNumberSafe(row[22]) || 0,
+        rowNumber: excelRowNumber
+      });
     }
     
     return loan;
-  }
-
-  /**
-   * Extract client information from row
-   * @private
-   */
-  extractClientInfo(row) {
-    return {
-      id: row[this.columnMap.CLIENT_ID],
-      name: parseField(row[this.columnMap.CLIENT_DISPLAY_NAME], this.defaults.CLIENT_NAME),
-      displayName: parseField(row[this.columnMap.CLIENT_DISPLAY_NAME], this.defaults.CLIENT_NAME),
-      
-      // Industry
-      industrySector: parseField(row[this.columnMap.CLIENT_INDUSTRY_SECTOR], this.defaults.INDUSTRY_SECTOR),
-      industrySubsector: parseField(row[this.columnMap.CLIENT_INDUSTRY_SUBSECTOR], 'General'),
-      
-      // Foundation
-      dateFounded: parseDate(row[this.columnMap.CLIENT_DATE_FOUNDED]),
-      
-      // Address
-      addressLine1: parseField(row[this.columnMap.CLIENT_ADDRESS_LINE_1], ''),
-      addressLine2: parseField(row[this.columnMap.CLIENT_ADDRESS_LINE_2], ''),
-      addressLine3: parseField(row[this.columnMap.CLIENT_ADDRESS_LINE_3], ''),
-      city: parseField(row[this.columnMap.CLIENT_CITY], 'Unknown'),
-      state: parseField(row[this.columnMap.CLIENT_STATE], row[this.columnMap.STATE] || this.defaults.STATE),
-      country: parseField(row[this.columnMap.CLIENT_COUNTRY], this.defaults.COUNTRY),
-      zipCode: parseField(row[this.columnMap.CLIENT_ZIP_CODE], ''),
-      
-      // Contact
-      email: parseField(row[this.columnMap.CLIENT_EMAIL], ''),
-      primaryNo: parseField(row[this.columnMap.CLIENT_PRIMARY_NO], '')
-    };
-  }
-
-  /**
-   * Extract lead information from row
-   * @private
-   */
-  extractLeadInfo(row) {
-    return {
-      id: row[this.columnMap.LEAD_ID],
-      fico: parseInt(row[this.columnMap.LEAD_FICO]) || this.defaults.FICO_SCORE,
-      
-      // Revenue metrics
-      avgMonthlyRevenue: parseNumber(row[this.columnMap.LEAD_AVG_MONTHLY_REVENUE]) || 0,
-      avgRevenue: parseNumber(row[this.columnMap.LEAD_AVG_REVENUE]) || 0,
-      avgMCADebits: parseNumber(row[this.columnMap.LEAD_AVG_MCA_DEBITS]) || 0,
-      avgMCADebts: parseNumber(row[this.columnMap.LEAD_AVG_MCA_DEBITS]) || 0, // Alias
-      avgMcaDebits: parseNumber(row[this.columnMap.LEAD_AVG_MCA_DEBITS]) || 0, // Another alias
-      
-      // Banking metrics
-      avgDailyBalance: parseNumber(row[this.columnMap.LEAD_AVG_DAILY_BALANCE]) || 0,
-      avgNSFs: parseNumber(row[this.columnMap.LEAD_AVG_NSFS]) || 0,
-      avgNegativeDays: parseNumber(row[this.columnMap.LEAD_AVG_NEGATIVE_DAYS]) || 0,
-      
-      // Deposit/Credit metrics
-      avgNumDeposits: parseNumber(row[this.columnMap.LEAD_AVG_NUM_DEPOSITS]) || 0,
-      avgNumCredits: parseNumber(row[this.columnMap.LEAD_AVG_NUM_CREDITS]) || 0,
-      avgDeposits: parseNumber(row[this.columnMap.LEAD_AVG_DEPOSITS]) || 0,
-      avgCredits: parseNumber(row[this.columnMap.LEAD_AVG_CREDITS]) || 0,
-      
-      // Dates
-      createdOn: parseDate(row[this.columnMap.LEAD_CREATED_ON]),
-      closedDate: parseDate(row[this.columnMap.LEAD_CLOSED_DATE]),
-      
-      // Rates
-      sellRate: parseNumber(row[this.columnMap.LEAD_SELL_RATE]) || 0,
-      
-      // Team
-      underwriter: parseField(row[this.columnMap.LEAD_UNDERWRITER], null),
-      salesperson: parseField(row[this.columnMap.LEAD_SALESPERSON], null),
-      podleader: parseField(row[this.columnMap.LEAD_POD_LEADER], null),
-      podLeader: parseField(row[this.columnMap.LEAD_POD_LEADER], null) // Alias
-    };
-  }
-
-  /**
-   * Create a paydate object from row
-   * @private
-   */
-  createPaydate(row, excelRowNumber) {
-    return {
-      date: parseDate(row[this.columnMap.PAYDATE_DATE]),
-      amount: parseNumber(row[this.columnMap.PAYDATE_AMOUNT]) || 0,
-      rowNumber: excelRowNumber
-    };
-  }
-
-  /**
-   * Create a transaction object from row
-   * @private
-   */
-  createTransaction(row, excelRowNumber) {
-    return {
-      date: parseDate(row[this.columnMap.TRANS_DATE]),
-      reference: row[this.columnMap.TRANS_REFERENCE] || '',
-      typeId: row[this.columnMap.TRANS_TYPE_ID],
-      typeName: row[this.columnMap.TRANS_TYPE_NAME] || '',
-      debit: parseNumber(row[this.columnMap.TRANS_DEBIT]) || 0,
-      credit: parseNumber(row[this.columnMap.TRANS_CREDIT]) || 0,
-      balance: parseNumber(row[this.columnMap.TRANS_BALANCE]) || 0,
-      rowNumber: excelRowNumber
-    };
   }
 
   /**
@@ -256,14 +214,37 @@ export class DataTransformer {
    * @private
    */
   appendToLoan(loan, row, excelRowNumber) {
-    // Add paydate if present
-    if (row[this.columnMap.PAYDATE_DATE]) {
-      loan.paydates.push(this.createPaydate(row, excelRowNumber));
+    // ENSURE arrays exist (defensive programming)
+    if (!Array.isArray(loan.paydates)) {
+      console.warn(`Loan ${loan.loanNumber} missing paydates array, initializing`);
+      loan.paydates = [];
+    }
+    if (!Array.isArray(loan.transactions)) {
+      console.warn(`Loan ${loan.loanNumber} missing transactions array, initializing`);
+      loan.transactions = [];
     }
     
-    // Add transaction if present
-    if (row[this.columnMap.TRANS_DATE]) {
-      loan.transactions.push(this.createTransaction(row, excelRowNumber));
+    // Check for additional paydates (Column O and P)
+    if (row[14]) {
+      loan.paydates.push({
+        date: this.parseDateSafe(row[14]),
+        amount: this.parseNumberSafe(row[15]) || loan.installmentAmount,
+        rowNumber: excelRowNumber
+      });
+    }
+    
+    // Check for additional transactions (Columns Q through W)
+    if (row[16]) {
+      loan.transactions.push({
+        date: this.parseDateSafe(row[16]),
+        reference: row[17] || '',
+        typeId: row[18],
+        typeName: row[19] || '',
+        debit: this.parseNumberSafe(row[20]) || 0,
+        credit: this.parseNumberSafe(row[21]) || 0,
+        balance: this.parseNumberSafe(row[22]) || 0,
+        rowNumber: excelRowNumber
+      });
     }
   }
 
@@ -272,28 +253,27 @@ export class DataTransformer {
    * @private
    */
   finalizeLoan(loan) {
-    // Sort paydates chronologically
-    loan.paydates.sort((a, b) => {
-      const dateA = new Date(a.date);
-      const dateB = new Date(b.date);
-      return dateA - dateB;
-    });
+    // ENSURE arrays exist before sorting (defensive programming)
+    if (!Array.isArray(loan.paydates)) {
+      console.error(`CRITICAL: Loan ${loan.loanNumber} has no paydates array!`);
+      loan.paydates = [];
+    }
+    if (!Array.isArray(loan.transactions)) {
+      console.error(`CRITICAL: Loan ${loan.loanNumber} has no transactions array!`);
+      loan.transactions = [];
+    }
     
-    // Sort transactions chronologically
-    loan.transactions.sort((a, b) => {
-      const dateA = new Date(a.date);
-      const dateB = new Date(b.date);
-      return dateA - dateB;
-    });
+    // Sort paydates by date
+    loan.paydates.sort((a, b) => new Date(a.date) - new Date(b.date));
     
-    // Calculate derived fields
+    // Sort transactions by date
+    loan.transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    // Add summary counts
     loan.totalPaydates = loan.paydates.length;
     loan.totalTransactions = loan.transactions.length;
     
-    // Determine contract date (earliest of payout or first payment date)
-    loan.contractDate = loan.payoutDate || loan.firstPaymentDate || null;
-    
-    // Set loan term if not present
+    // Calculate loan term if not present
     if (!loan.loanTerm && loan.firstPaymentDate && loan.endDate) {
       const start = new Date(loan.firstPaymentDate);
       const end = new Date(loan.endDate);
@@ -301,26 +281,103 @@ export class DataTransformer {
       loan.loanTerm = months;
     }
     
+    // Set contract date
+    loan.contractDate = loan.payoutDate || loan.firstPaymentDate || null;
+    
     return loan;
   }
 
   /**
-   * Get statistics about the transformation
+   * Safe parse number - matches original parseNumber from ETLService
+   * @private
+   */
+  parseNumberSafe(value) {
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const cleaned = value.replace(/[$,]/g, '');
+      const parsed = parseFloat(cleaned);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  }
+
+  /**
+   * Safe parse date - matches original parseDate from ETLService
+   * @private
+   */
+  parseDateSafe(value) {
+    if (!value) return null;
+    
+    // If it's a Date object from Excel
+    if (value instanceof Date) {
+      const year = value.getFullYear();
+      const month = String(value.getMonth() + 1).padStart(2, '0');
+      const day = String(value.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    
+    // If it's an Excel serial number
+    if (typeof value === 'number') {
+      const excelEpoch = new Date(1900, 0, 1);
+      const msPerDay = 24 * 60 * 60 * 1000;
+      const adjustedValue = value > 59 ? value - 1 : value;
+      const date = new Date(excelEpoch.getTime() + (adjustedValue - 1) * msPerDay);
+      
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    
+    // If it's a string
+    if (typeof value === 'string') {
+      if (value.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        return value;
+      }
+      
+      const parsed = new Date(value);
+      if (!isNaN(parsed.getTime())) {
+        const year = parsed.getFullYear();
+        const month = String(parsed.getMonth() + 1).padStart(2, '0');
+        const day = String(parsed.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      }
+    }
+    
+    return String(value);
+  }
+
+  /**
+   * Safe parse field - handles FALSE values from Excel
+   * @private
+   */
+  parseFieldSafe(value, defaultValue = '') {
+    if (!value || value === 'FALSE' || value === 'false' || value === false) {
+      return defaultValue;
+    }
+    return value;
+  }
+
+  /**
+   * Get transformation statistics
    * @param {Array} loans - Transformed loans
-   * @returns {Object} Transformation statistics
+   * @returns {Object} Statistics
    */
   getTransformationStats(loans) {
     return {
       totalLoans: loans.length,
-      loansWithTransactions: loans.filter(l => l.transactions.length > 0).length,
-      loansWithPaydates: loans.filter(l => l.paydates.length > 0).length,
+      loansWithTransactions: loans.filter(l => l.transactions && l.transactions.length > 0).length,
+      loansWithPaydates: loans.filter(l => l.paydates && l.paydates.length > 0).length,
       restructuredLoans: loans.filter(l => l.isRestructured).length,
       activeLoans: loans.filter(l => l.active).length,
-      averageTransactionsPerLoan: loans.reduce((sum, l) => sum + l.transactions.length, 0) / loans.length,
-      averagePaydatesPerLoan: loans.reduce((sum, l) => sum + l.paydates.length, 0) / loans.length
+      averageTransactionsPerLoan: loans.reduce((sum, l) => 
+        sum + (l.transactions ? l.transactions.length : 0), 0) / (loans.length || 1),
+      averagePaydatesPerLoan: loans.reduce((sum, l) => 
+        sum + (l.paydates ? l.paydates.length : 0), 0) / (loans.length || 1)
     };
   }
 }
 
 // Export singleton instance and class
 export const dataTransformer = new DataTransformer();
+export default DataTransformer;

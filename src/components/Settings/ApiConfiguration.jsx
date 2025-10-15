@@ -7,6 +7,8 @@ export const ApiConfiguration = ({ onApiKeyUpdate }) => {
   const [backendStatus, setBackendStatus] = useState('checking');
   const [backendApiKey, setBackendApiKey] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [selectedModel, setSelectedModel] = useState('claude-sonnet-4-5-20250929');
+  const [availableModels, setAvailableModels] = useState({});
   
   useEffect(() => {
     checkBackendStatus();
@@ -22,6 +24,9 @@ export const ApiConfiguration = ({ onApiKeyUpdate }) => {
         const data = await response.json();
         setBackendStatus('connected');
         setBackendApiKey(data.hasApiKey);
+        if (data.availableModels) {
+          setAvailableModels(data.availableModels);
+        }
         onApiKeyUpdate(data.hasApiKey); // Update parent with API key status
       } else {
         setBackendStatus('error');
@@ -41,17 +46,24 @@ export const ApiConfiguration = ({ onApiKeyUpdate }) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          prompt: 'Test connection. Respond with "OK".',
-          model: 'claude-3-5-sonnet-20241022',
+          prompt: 'Test connection. Respond with just "Connection successful".',
+          model: selectedModel,
           analysisType: 'test'
         })
       });
       
       if (response.ok) {
-        setTestResult({ success: true, message: '✓ Backend proxy and API key are working!' });
+        const data = await response.json();
+        setTestResult({ 
+          success: true, 
+          message: `✓ Backend proxy and API key are working! Using ${data.model}` 
+        });
       } else {
         const error = await response.json();
-        setTestResult({ success: false, message: `Test failed: ${error.error}` });
+        setTestResult({ 
+          success: false, 
+          message: `Test failed: ${error.error}${error.details ? ' - ' + error.details : ''}` 
+        });
       }
     } catch (err) {
       setTestResult({ 
@@ -60,6 +72,19 @@ export const ApiConfiguration = ({ onApiKeyUpdate }) => {
       });
     }
   };
+
+  // Save selected model preference
+  useEffect(() => {
+    localStorage.setItem('preferred_model', selectedModel);
+  }, [selectedModel]);
+
+  // Load saved model preference
+  useEffect(() => {
+    const savedModel = localStorage.getItem('preferred_model');
+    if (savedModel) {
+      setSelectedModel(savedModel);
+    }
+  }, []);
   
   return (
     <div className="space-y-6">
@@ -122,6 +147,28 @@ export const ApiConfiguration = ({ onApiKeyUpdate }) => {
               )}
             </div>
           </div>
+
+          {/* Model Selection */}
+          <div className="p-4 bg-gray-50 rounded-lg">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Selected Model
+            </label>
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="claude-sonnet-4-5-20250929">Claude Sonnet 4.5 (Latest - Sept 2025)</option>
+              <option value="claude-opus-4-1-20250805">Claude Opus 4.1 (Aug 2025)</option>
+              <option value="claude-sonnet-4-20250522">Claude Sonnet 4 (May 2025)</option>
+              <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet (Legacy)</option>
+            </select>
+            {availableModels[selectedModel] && (
+              <p className="text-xs text-gray-500 mt-1">
+                {availableModels[selectedModel].description}
+              </p>
+            )}
+          </div>
           
           {/* Test Button */}
           <button
@@ -159,10 +206,10 @@ export const ApiConfiguration = ({ onApiKeyUpdate }) => {
           
           <ol className="list-decimal list-inside space-y-2 text-sm text-blue-800">
             <li>Create a new folder: <code className="bg-white px-1 py-0.5 rounded">loan-dashboard-backend</code></li>
-            <li>Copy the <code className="bg-white px-1 py-0.5 rounded">anthropicProxy.js</code> file to this folder</li>
+            <li>Copy the updated <code className="bg-white px-1 py-0.5 rounded">anthropicProxy.js</code> file to this folder</li>
             <li>Run: <code className="bg-white px-1 py-0.5 rounded">npm install express cors dotenv</code></li>
             <li>Create a <code className="bg-white px-1 py-0.5 rounded">.env</code> file with:
-              <pre className="bg-white p-2 rounded mt-1">ANTHROPIC_API_KEY=sk-ant-api-your-key-here</pre>
+              <pre className="bg-white p-2 rounded mt-1">ANTHROPIC_API_KEY=sk-ant-api03-your-key-here</pre>
             </li>
             <li>Start the server: <code className="bg-white px-1 py-0.5 rounded">node anthropicProxy.js</code></li>
           </ol>
@@ -181,26 +228,26 @@ export const ApiConfiguration = ({ onApiKeyUpdate }) => {
             <li>Go to <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">console.anthropic.com</a></li>
             <li>Generate an API key</li>
             <li>Add to backend <code className="bg-white px-1 py-0.5 rounded">.env</code> file:
-              <pre className="bg-white p-2 rounded mt-1">ANTHROPIC_API_KEY=sk-ant-api-your-key-here</pre>
+              <pre className="bg-white p-2 rounded mt-1">ANTHROPIC_API_KEY=sk-ant-api03-your-key-here</pre>
             </li>
             <li>Restart the backend server</li>
           </ol>
         </div>
       )}
 
-      {/* Model Information & Pricing */}
+      {/* Model Information & Pricing - Updated for October 2025 */}
       <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold mb-4">Available Claude Models</h3>
+        <h3 className="text-lg font-semibold mb-4">Available Claude Models (October 2025)</h3>
         
         <div className="space-y-3">
           <div className="border rounded-lg p-4">
             <div className="flex justify-between items-start">
               <div>
-                <h4 className="font-medium">Claude Sonnet 4</h4>
-                <p className="text-sm text-gray-600">Model: claude-3-5-sonnet-20241022</p>
-                <p className="text-xs text-gray-500 mt-1">Fast, balanced performance for most tasks</p>
+                <h4 className="font-medium">Claude Sonnet 4.5</h4>
+                <p className="text-sm text-gray-600">Model: claude-sonnet-4-5-20250929</p>
+                <p className="text-xs text-gray-500 mt-1">Best for coding and complex agents, 30+ hour autonomous operation</p>
               </div>
-              <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">Recommended</span>
+              <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">Latest & Recommended</span>
             </div>
             <div className="mt-3 pt-3 border-t">
               <div className="flex justify-between text-sm">
@@ -222,8 +269,8 @@ export const ApiConfiguration = ({ onApiKeyUpdate }) => {
             <div className="flex justify-between items-start">
               <div>
                 <h4 className="font-medium">Claude Opus 4.1</h4>
-                <p className="text-sm text-gray-600">Model: claude-3-opus-20240229</p>
-                <p className="text-xs text-gray-500 mt-1">Most powerful for complex reasoning & coding</p>
+                <p className="text-sm text-gray-600">Model: claude-opus-4-1-20250805</p>
+                <p className="text-xs text-gray-500 mt-1">Exceptional for specialized complex tasks requiring advanced reasoning</p>
               </div>
               <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded text-xs font-medium">Premium</span>
             </div>
@@ -242,12 +289,24 @@ export const ApiConfiguration = ({ onApiKeyUpdate }) => {
               </div>
             </div>
           </div>
+
+          <div className="border rounded-lg p-4 opacity-75">
+            <div className="flex justify-between items-start">
+              <div>
+                <h4 className="font-medium">Claude Sonnet 4</h4>
+                <p className="text-sm text-gray-600">Model: claude-sonnet-4-20250522</p>
+                <p className="text-xs text-gray-500 mt-1">Previous generation - consider upgrading to 4.5</p>
+              </div>
+              <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-medium">Previous Gen</span>
+            </div>
+          </div>
         </div>
         
         <div className="mt-4 p-3 bg-gray-50 rounded">
           <p className="text-xs text-gray-600">
-            <strong>💡 Tip:</strong> Sonnet 4 is 5x cheaper than Opus 4.1 and handles 90% of tasks just as well. 
-            Use Opus only for the most complex analyses requiring deep reasoning.
+            <strong>💡 Tip:</strong> Sonnet 4.5 offers the best balance of performance and cost for most tasks. 
+            It can handle 30+ hours of autonomous coding vs 7 hours for previous models. Use Opus 4.1 only for 
+            the most complex analyses requiring deep reasoning.
           </p>
         </div>
       </div>

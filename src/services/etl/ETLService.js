@@ -81,14 +81,46 @@ export class ETLService {
    */
   processLoan(loan) {
     try {
-      // Process transactions first
+      // FIX: Process transactions but DON'T overwrite the array
       if (loan.transactions && loan.transactions.length > 0) {
-        const processedTransactions = this.transactionProcessor.processTransactions(
-          loan.transactions,
-          loan
-        );
-        loan.transactions = processedTransactions.transactions;
-        loan.transactionSummary = processedTransactions.summary;
+        try {
+          const processedTransactions = this.transactionProcessor.processTransactions(
+            loan.transactions,
+            loan
+          );
+          
+          // CRITICAL FIX: Only overwrite if we got valid data back
+          if (processedTransactions && processedTransactions.transactions && Array.isArray(processedTransactions.transactions)) {
+            loan.transactions = processedTransactions.transactions;
+            loan.transactionSummary = processedTransactions.summary;
+          } else {
+            // If TransactionProcessor didn't return valid data, keep original transactions
+            console.warn(`TransactionProcessor returned invalid data for loan ${loan.loanNumber}, keeping original transactions`);
+            loan.transactionSummary = {
+              totalTransactions: loan.transactions.length,
+              totalCredits: loan.transactions.reduce((sum, t) => sum + (t.credit || 0), 0),
+              totalDebits: loan.transactions.reduce((sum, t) => sum + (t.debit || 0), 0),
+              error: 'TransactionProcessor failed to process'
+            };
+          }
+        } catch (processingError) {
+          // If transaction processing fails, keep original transactions
+          console.error(`Failed to process transactions for loan ${loan.loanNumber}:`, processingError);
+          loan.transactionSummary = {
+            totalTransactions: loan.transactions.length,
+            totalCredits: loan.transactions.reduce((sum, t) => sum + (t.credit || 0), 0),
+            totalDebits: loan.transactions.reduce((sum, t) => sum + (t.debit || 0), 0),
+            error: processingError.message
+          };
+        }
+      } else {
+        // No transactions to process
+        loan.transactions = loan.transactions || [];
+        loan.transactionSummary = {
+          totalTransactions: 0,
+          totalCredits: 0,
+          totalDebits: 0
+        };
       }
       
       // Calculate status
@@ -125,11 +157,24 @@ export class ETLService {
       loan.processedAt = new Date().toISOString();
       loan.etlVersion = '2.0.0';
       
+      // VALIDATION: Ensure critical arrays exist
+      if (!Array.isArray(loan.transactions)) {
+        console.error(`CRITICAL: Loan ${loan.loanNumber} lost its transactions array during processing!`);
+        loan.transactions = [];
+      }
+      if (!Array.isArray(loan.paydates)) {
+        console.error(`CRITICAL: Loan ${loan.loanNumber} lost its paydates array during processing!`);
+        loan.paydates = [];
+      }
+      
       return loan;
     } catch (error) {
       console.error(`ETL Service - Failed to process loan ${loan.loanNumber}:`, error);
       // Return loan with error flag rather than throwing
       loan.processingError = error.message;
+      // ENSURE arrays exist even on error
+      loan.transactions = loan.transactions || [];
+      loan.paydates = loan.paydates || [];
       return loan;
     }
   }
@@ -301,6 +346,14 @@ export class ETLService {
    */
   parseNumber(value) {
     return this.utils.parseNumber(value);
+  }
+
+  /**
+   * Legacy method - Parse field
+   * @deprecated Use SharedUtilities.parseField() instead
+   */
+  parseField(value, defaultValue = '') {
+    return this.utils.parseField(value, defaultValue);
   }
 
   /**
@@ -515,12 +568,15 @@ export class ETLService {
     // Required fields
     if (!loan.loanNumber) errors.push('Missing loan number');
     if (!loan.loanAmount || loan.loanAmount <= 0) errors.push('Invalid loan amount');
-    if (!loan.contractDate) errors.push('Missing contract date');
+    if (!loan.contractDate && !loan.payoutDate && !loan.firstPaymentDate) {
+      warnings.push('Missing contract/payout/first payment date');
+    }
     
     // Data quality warnings
     if (!loan.client?.name) warnings.push('Missing client name');
     if (!loan.lead?.fico) warnings.push('Missing FICO score');
     if (!loan.paydates || loan.paydates.length === 0) warnings.push('No payment schedule');
+    if (!loan.transactions || loan.transactions.length === 0) warnings.push('No transactions');
     
     // Logical consistency
     if (loan.collectionMetrics?.collectedToDate > loan.loanAmount) {
@@ -532,6 +588,24 @@ export class ETLService {
       errors,
       warnings
     };
+  }
+
+  /**
+   * Debug method - Log loan structure
+   * @param {Object} loan - Loan to debug
+   */
+  debugLoan(loan) {
+    console.group(`Loan Debug: ${loan.loanNumber}`);
+    console.log('Has transactions:', Array.isArray(loan.transactions));
+    console.log('Transaction count:', loan.transactions?.length || 0);
+    console.log('Has paydates:', Array.isArray(loan.paydates));
+    console.log('Paydate count:', loan.paydates?.length || 0);
+    console.log('Status:', loan.status);
+    console.log('Risk Score:', loan.riskScore);
+    if (loan.processingError) {
+      console.error('Processing Error:', loan.processingError);
+    }
+    console.groupEnd();
   }
 }
 
