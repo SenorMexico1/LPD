@@ -6,7 +6,11 @@ import { LoanDetailsView } from './components/LoanDetails';
 import { FileUploadButton } from './components/FileUpload';
 import { TrendDiscoveryTab } from './components/TrendDiscovery/TrendDiscoveryTab';
 import { ApiConfiguration } from './components/Settings/ApiConfiguration';
-import { ETLService } from './services/ETLService';
+
+// CORRECTED IMPORT PATH - Import from the etl folder
+import { ETLService } from './services/etl/ETLService';
+// Or if you have an index.js that exports ETLService:
+// import { ETLService } from './services/etl';
 
 function App() {
   const [activeTab, setActiveTab] = useState('summary');

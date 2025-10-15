@@ -1,3 +1,4 @@
+// src/components/LoanDetails/LoanDetailsView.jsx
 import React, { useState } from 'react';
 import { OverviewSection } from './OverviewSection';
 import { ScheduleSection } from './ScheduleSection';
@@ -9,9 +10,12 @@ export const LoanDetailsView = ({ loan, onBack }) => {
   
   const getStatusColor = (status) => {
     if (status === 'current') return 'bg-green-100 text-green-800';
-    if (status.includes('delinquent')) return 'bg-yellow-100 text-yellow-800';
+    if (status?.includes('delinquent')) return 'bg-yellow-100 text-yellow-800';
     return 'bg-red-100 text-red-800';
   };
+  
+  // Get merchant name from the correct location
+  const merchantName = loan.client?.name || loan.client?.displayName || 'Unknown';
   
   return (
     <div className="bg-white rounded-lg shadow-lg p-6">
@@ -24,30 +28,38 @@ export const LoanDetailsView = ({ loan, onBack }) => {
             ← Back to list
           </button>
           <h2 className="text-2xl font-bold">Loan #{loan.loanNumber}</h2>
-          <p className="text-gray-600">{loan.merchantName}</p>
+          <p className="text-gray-600">{merchantName}</p>
         </div>
         <span className={`px-3 py-1 rounded-full text-sm font-semibold ${getStatusColor(loan.status)}`}>
-          {loan.status.replace('_', ' ').toUpperCase()}
+          {loan.status?.replace('_', ' ').toUpperCase() || 'UNKNOWN'}
         </span>
       </div>
       
-      {/* Key Metrics */}
+      {/* Key Metrics - Use correct fields */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <div className="bg-gray-50 p-3 rounded">
           <p className="text-sm text-gray-600">Contract Balance</p>
-          <p className="text-xl font-bold">${loan.contractBalance.toLocaleString()}</p>
+          <p className="text-xl font-bold">
+            ${(loan.contractBalance || loan.loanAmount || 0).toLocaleString()}
+          </p>
         </div>
         <div className="bg-gray-50 p-3 rounded">
           <p className="text-sm text-gray-600">Installment Amount</p>
-          <p className="text-xl font-bold">${loan.installmentAmount.toLocaleString()}</p>
+          <p className="text-xl font-bold">
+            ${(loan.installmentAmount || loan.instalmentAmount || 0).toLocaleString()}
+          </p>
         </div>
         <div className="bg-gray-50 p-3 rounded">
           <p className="text-sm text-gray-600">Days Overdue</p>
-          <p className="text-xl font-bold">{loan.daysOverdue}</p>
+          <p className="text-xl font-bold">
+            {loan.daysOverdue || loan.daysDelinquent || 0}
+          </p>
         </div>
         <div className="bg-gray-50 p-3 rounded">
           <p className="text-sm text-gray-600">Risk Score</p>
-          <p className="text-xl font-bold">{loan.riskScore.toFixed(0)}</p>
+          <p className="text-xl font-bold">
+            {loan.riskScore?.toFixed(0) || 'N/A'}
+          </p>
         </div>
       </div>
       

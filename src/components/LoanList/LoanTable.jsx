@@ -261,11 +261,11 @@ export const LoanTable = ({ loans, sortBy, setSortBy, sortOrder, setSortOrder, o
     }
   };
 
-  // Enhance loans with calculated risk scores
+  // Enhance loans with calculated risk scores - FIXED TO USE NEW ETL STRUCTURE
   const enhancedLoans = loans.map(loan => ({
     ...loan,
-    calculatedRiskScore: calculateRiskScore(loan),
-    merchantName: loan.client?.name || loan.merchantName || 'Unknown'
+    calculatedRiskScore: loan.riskScore || calculateRiskScore(loan), // Use pre-calculated from ETL if available
+    merchantName: loan.client?.name || loan.client?.displayName || 'Unknown' // FIXED: Use client.name from ETL
   }));
 
   const sortedLoans = [...enhancedLoans].sort((a, b) => {
@@ -278,8 +278,14 @@ export const LoanTable = ({ loans, sortBy, setSortBy, sortOrder, setSortOrder, o
       bVal = b.calculatedRiskScore;
     }
     
+    // Special handling for merchant name
+    if (sortBy === 'merchantName') {
+      aVal = a.merchantName;
+      bVal = b.merchantName;
+    }
+    
     if (typeof aVal === 'string') {
-      aVal = aVal.toLowerCase();
+      aVal = aVal?.toLowerCase() || '';
       bVal = bVal?.toLowerCase() || '';
     }
     
@@ -366,10 +372,10 @@ export const LoanTable = ({ loans, sortBy, setSortBy, sortOrder, setSortOrder, o
                     <StatusBadge status={loan.status} />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${loan.contractBalance.toLocaleString()}
+                    ${(loan.contractBalance || loan.loanAmount || 0).toLocaleString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {loan.missedPayments || 0}
+                    {loan.missedPayments || loan.statusCalculation?.missedPayments || 0}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <IndustryBadge favorability={industryFavorability} />
@@ -408,10 +414,10 @@ const StatusBadge = ({ status }) => {
   const colorClass = status === 'current' ? 'bg-green-100 text-green-800' :
                      status === 'restructured' ? 'bg-purple-100 text-purple-800' :
                      status === 'default' ? 'bg-red-100 text-red-800' :
-                     status.includes('delinquent') ? 'bg-yellow-100 text-yellow-800' :
+                     status?.includes('delinquent') ? 'bg-yellow-100 text-yellow-800' :
                      'bg-gray-100 text-gray-800';
   
-  const displayText = status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+  const displayText = status?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'UNKNOWN';
   
   return (
     <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${colorClass}`}>
@@ -442,7 +448,7 @@ const RiskIndicator = ({ score }) => {
   return (
     <div className="flex items-center space-x-2">
       <span className={`font-semibold ${riskLevel.textColor}`}>
-        {score.toFixed(0)}
+        {score?.toFixed(0) || 'N/A'}
       </span>
       <div className="flex-1">
         <div className="w-20 bg-gray-200 rounded-full h-2">
