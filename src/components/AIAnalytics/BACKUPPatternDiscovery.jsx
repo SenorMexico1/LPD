@@ -104,7 +104,7 @@ export const PatternDiscovery = ({ loans, analysisData, portfolioMetrics, apiKey
       .slice(0, 5);
 
     // Build the prompt based on analysis type with EXTERNAL CONTEXT
-    let prompt = `Analyze this loan portfolio data to discover ${analysisTypes.find(a => a.id === type).name}.
+    let prompt = `You are analyzing loan portfolio data to discover patterns. Respond ONLY with a valid JSON object - no markdown, no backticks, no explanatory text before or after the JSON.
 
 PORTFOLIO OVERVIEW:
 - Total Loans: ${portfolioMetrics.summary.totalLoans}
@@ -157,8 +157,8 @@ ${topPerformingIndustries.map(i =>
   `- ${i.industry}: ${i.defaultRate.toFixed(1)}% default rate, ${i.count} loans, $${(i.amount/1000).toFixed(0)}K total`
 ).join('\n')}
 
-DETAILED LOAN DATA:
-${JSON.stringify(analysisData.slice(0, 100), null, 2)}
+DETAILED LOAN DATA (sample):
+${JSON.stringify(analysisData.slice(0, 50), null, 2)}
 
 ANALYSIS REQUIREMENTS:
 1. Identify specific, actionable patterns with confidence scores
@@ -177,7 +177,8 @@ SPECIFIC FOCUS: Find hidden revenue opportunities
 - Identify high-performing segments that are underrepresented
 - Find combinations of factors (geography + industry + FICO) that outperform
 - Look for "hidden gems" - small segments with exceptional performance
-- Calculate potential revenue if these segments were expanded`;
+- Calculate potential revenue if these segments were expanded
+- Identify underserved markets with good performance history`;
         break;
         
       case 'geographic':
@@ -187,7 +188,19 @@ SPECIFIC FOCUS: Geographic performance patterns
 - Identify cities/states with unusual performance patterns
 - Find geographic clusters of success or failure
 - Correlate location with industry performance
-- Look for expansion opportunities in specific regions`;
+- Look for expansion opportunities in specific regions
+- Identify regional economic factors affecting performance`;
+        break;
+        
+      case 'industry':
+        prompt += `
+
+SPECIFIC FOCUS: Industry correlation analysis
+- Find industries that consistently outperform
+- Identify cross-industry correlations
+- Discover industry-specific risk factors
+- Find seasonal patterns by industry
+- Identify emerging industry opportunities`;
         break;
         
       case 'risk':
@@ -197,30 +210,53 @@ SPECIFIC FOCUS: Early warning signals
 - Identify patterns that predict default 2-3 months in advance
 - Find combinations of factors that indicate high risk
 - Look for changes in payment velocity as indicators
-- Identify which loans are likely to default in next 30-60 days`;
+- Identify which specific loans are likely to default in next 30-60 days
+- Calculate probability scores for each risk pattern`;
+        break;
+        
+      case 'seasonal':
+        prompt += `
+
+SPECIFIC FOCUS: Seasonal and temporal patterns
+- Identify monthly/quarterly payment patterns
+- Find seasonal business cycles by industry
+- Discover time-based risk factors
+- Identify optimal origination timing
+- Find patterns in payment delays by time of year`;
+        break;
+        
+      case 'recovery':
+        prompt += `
+
+SPECIFIC FOCUS: Recovery optimization patterns
+- Identify what drives successful recovery from delinquency
+- Find patterns in successful restructuring
+- Discover factors that predict recovery success
+- Identify optimal intervention timing
+- Calculate recovery probability scores`;
         break;
     }
 
     prompt += `
 
-OUTPUT FORMAT:
+CRITICAL: You must respond with ONLY a valid JSON object in exactly this format, with no markdown formatting, no backticks, and no text before or after:
 {
   "discoveries": [
     {
-      "pattern": "Specific pattern description",
-      "confidence": 0-100,
-      "affectedLoans": ["list of loan numbers"],
-      "financialImpact": "dollar amount",
-      "recommendation": "Specific action to take",
-      "evidence": "Data supporting this pattern"
+      "pattern": "Specific pattern description with clear metrics",
+      "confidence": 85,
+      "affectedLoans": ["loan1", "loan2", "loan3"],
+      "financialImpact": "150000",
+      "recommendation": "Specific action to take immediately",
+      "evidence": "Clear data supporting this pattern with numbers"
     }
   ],
-  "summary": "Executive summary of findings",
-  "immediateActions": ["List of actions to take now"]
+  "summary": "Executive summary of key findings in 2-3 sentences",
+  "immediateActions": ["Action 1 to take today", "Action 2 to implement this week", "Action 3 for next month"]
 }`;
 
     return prompt;
-  }, [portfolioMetrics, analysisData, confidence]);
+  }, [portfolioMetrics, analysisData, confidence, externalContext]);
 
   // Run AI analysis
   const runAnalysis = useCallback(async () => {
@@ -235,40 +271,192 @@ OUTPUT FORMAT:
     try {
       const prompt = buildAnalysisPrompt(selectedAnalysis);
       
+      console.log('Sending analysis request for:', selectedAnalysis);
+      
       // Call backend API
       const response = await fetch(`${API_URL}/api/analyze`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': apiKey ? `Bearer ${apiKey}` : undefined
+          ...(apiKey && { 'Authorization': `Bearer ${apiKey}` })
         },
         body: JSON.stringify({
           prompt,
           analysisType: selectedAnalysis,
-          model: 'claude-sonnet-4-5-20250929',
+          model: 'claude-sonnet-4-5-20250929', // Correct model name for Sonnet 4.5
           maxTokens: 4000
         })
       });
 
       if (!response.ok) {
-        throw new Error(`Analysis failed: ${response.statusText}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Analysis failed: ${response.statusText}`);
       }
 
-      const result = await response.json();
+      const responseData = await response.json();
+      console.log('Received response:', responseData);
       
-      // Parse AI response
-      const parsed = typeof result.content === 'string' ? 
-        JSON.parse(result.content) : result.content;
+      // Handle different response structures from backend
+      let analysisText;
+      if (responseData.result) {
+        // Backend returns {result: "..."}
+        analysisText = responseData.result;
+      } else if (responseData.content && Array.isArray(responseData.content)) {
+        // Direct Claude API response structure
+        analysisText = responseData.content[0].text;
+      } else if (typeof responseData === 'string') {
+        // Direct string response
+        analysisText = responseData;
+      } else {
+        console.error('Unexpected response structure:', responseData);
+        throw new Error('Unexpected response format from API');
+      }
+      
+      console.log('Analysis text to parse:', analysisText);
+      
+      // Clean the response text - handle various markdown and formatting issues
+      let cleanedText = analysisText;
+      
+      console.log('Raw response before cleaning:', cleanedText.substring(0, 200));
+      
+      // More aggressive cleaning for markdown and special characters
+      // Remove backticks with or without json designation
+      cleanedText = cleanedText.replace(/^```json\s*/i, '');
+      cleanedText = cleanedText.replace(/^```\s*/gm, '');
+      cleanedText = cleanedText.replace(/```$/gm, '');
+      cleanedText = cleanedText.replace(/```json\s*/gi, '');
+      cleanedText = cleanedText.replace(/```\s*/g, '');
+      
+      // Remove any leading/trailing quotes that might wrap the entire response
+      cleanedText = cleanedText.trim();
+      if (cleanedText.startsWith('"') && cleanedText.endsWith('"')) {
+        cleanedText = cleanedText.slice(1, -1);
+      }
+      
+      // Handle escaped quotes and newlines that might be in the string
+      cleanedText = cleanedText.replace(/\\"/g, '"');
+      cleanedText = cleanedText.replace(/\\n/g, '\n');
+      cleanedText = cleanedText.replace(/\\\\/g, '\\');
+      
+      console.log('Cleaned text:', cleanedText.substring(0, 200));
+      
+      // Extract JSON from the response
+      let parsed;
+      
+      // First, try to parse the cleaned text directly
+      try {
+        parsed = JSON.parse(cleanedText);
+        console.log('Successfully parsed JSON directly');
+      } catch (directError) {
+        console.log('Direct parse failed, trying to extract JSON object...');
+        
+        // Try to find JSON object in the text
+        const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            parsed = JSON.parse(jsonMatch[0]);
+            console.log('Successfully parsed extracted JSON');
+          } catch (parseError) {
+            console.error('Failed to parse extracted JSON:', parseError);
+            console.log('Attempted to parse:', jsonMatch[0].substring(0, 200));
+            
+            // Try even more aggressive cleaning
+            let ultraClean = jsonMatch[0]
+              .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+              .replace(/\r\n/g, '\n') // Normalize line endings
+              .replace(/\n\s*\n/g, '\n') // Remove multiple newlines
+              .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
+              .trim();
+            
+            try {
+              parsed = JSON.parse(ultraClean);
+              console.log('Successfully parsed after ultra-aggressive cleaning');
+            } catch (finalError) {
+              console.error('Final parse attempt failed:', finalError);
+              
+              // Last resort: try to manually extract the data from the visible pattern
+              // This handles cases where the JSON is valid but wrapped in extra formatting
+              const patternMatch = cleanedText.match(/"pattern":\s*"([^"]+)"/);
+              const confidenceMatch = cleanedText.match(/"confidence":\s*(\d+)/);
+              const loansMatch = cleanedText.match(/"affectedLoans":\s*\[(.*?)\]/);
+              const impactMatch = cleanedText.match(/"financialImpact":\s*"([^"]+)"/);
+              const recommendationMatch = cleanedText.match(/"recommendation":\s*"([^"]+)"/);
+              
+              if (patternMatch && confidenceMatch) {
+                console.log('Manually extracting pattern data from malformed JSON');
+                
+                // Extract loan IDs
+                let affectedLoans = [];
+                if (loansMatch && loansMatch[1]) {
+                  affectedLoans = loansMatch[1]
+                    .split(',')
+                    .map(l => l.trim().replace(/["']/g, ''))
+                    .filter(l => l.length > 0);
+                }
+                
+                parsed = {
+                  discoveries: [{
+                    pattern: patternMatch[1],
+                    confidence: parseInt(confidenceMatch[1]),
+                    affectedLoans: affectedLoans,
+                    financialImpact: impactMatch ? impactMatch[1] : "0",
+                    recommendation: recommendationMatch ? recommendationMatch[1] : "Review identified patterns",
+                    evidence: "Pattern detected in portfolio analysis"
+                  }],
+                  summary: "Analysis completed - patterns identified in portfolio",
+                  immediateActions: ["Review identified loans", "Implement recommended monitoring"]
+                };
+              } else {
+                throw new Error('Could not extract pattern data from response');
+              }
+            }
+          }
+        } else {
+          console.error('No JSON object found in response');
+          // Create a fallback structure with the raw response
+          parsed = {
+            discoveries: [{
+              pattern: "Analysis completed but response format was unexpected. Check console for details.",
+              confidence: 50,
+              affectedLoans: [],
+              financialImpact: "0",
+              recommendation: "Review the analysis manually in console logs",
+              evidence: cleanedText.substring(0, 100) + "..."
+            }],
+            summary: "Analysis completed with parsing errors. Raw response logged to console.",
+            immediateActions: ["Check browser console for full response", "Verify backend API configuration"]
+          };
+          console.log('Full raw response for manual review:', analysisText);
+        }
+      }
+      
+      // Ensure the parsed object has the expected structure
+      if (!parsed.discoveries || !Array.isArray(parsed.discoveries)) {
+        console.warn('Discoveries not found or not an array, creating default structure');
+        parsed.discoveries = [];
+      }
+      
+      // Clean up the discoveries data
+      parsed.discoveries = parsed.discoveries.map(disc => ({
+        pattern: disc.pattern || 'Pattern description missing',
+        confidence: typeof disc.confidence === 'number' ? disc.confidence : 70,
+        affectedLoans: Array.isArray(disc.affectedLoans) ? disc.affectedLoans : [],
+        financialImpact: disc.financialImpact ? String(disc.financialImpact) : '0',
+        recommendation: disc.recommendation || 'No recommendation provided',
+        evidence: disc.evidence || 'No evidence provided'
+      }));
       
       const discovery = {
         id: Date.now(),
         type: selectedAnalysis,
         timestamp: new Date().toISOString(),
-        discoveries: parsed.discoveries || [],
-        summary: parsed.summary,
+        discoveries: parsed.discoveries,
+        summary: parsed.summary || 'Analysis completed',
         immediateActions: parsed.immediateActions || []
       };
 
+      console.log('Final discovery object:', discovery);
+      
       setDiscoveries(prev => [discovery, ...prev]);
       if (onDiscovery) onDiscovery(discovery);
       
@@ -288,10 +476,10 @@ OUTPUT FORMAT:
     discoveries.forEach(d => {
       d.discoveries?.forEach(disc => {
         if (disc.financialImpact) {
-          const impact = parseFloat(disc.financialImpact.replace(/[^0-9.-]/g, ''));
+          const impact = parseFloat(String(disc.financialImpact).replace(/[^0-9.-]/g, ''));
           if (!isNaN(impact)) totalImpact += impact;
         }
-        if (disc.affectedLoans) {
+        if (disc.affectedLoans && Array.isArray(disc.affectedLoans)) {
           disc.affectedLoans.forEach(loan => totalLoansAffected.add(loan));
         }
       });
@@ -491,7 +679,9 @@ OUTPUT FORMAT:
                     
                     <div className="flex gap-4 text-sm">
                       <span className="text-green-600">
-                        Impact: {disc.financialImpact}
+                        Impact: ${parseFloat(String(disc.financialImpact).replace(/[^0-9.-]/g, '')) ? 
+                          (parseFloat(String(disc.financialImpact).replace(/[^0-9.-]/g, '')) / 1000).toFixed(0) + 'K' : 
+                          '0'}
                       </span>
                       <span className="text-blue-600">
                         Affects: {disc.affectedLoans?.length || 0} loans
