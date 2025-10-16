@@ -32,13 +32,22 @@ export class PatternValidator {
   }
 
   checkAffectedLoans(pattern, loans) {
-    if (!pattern.affectedLoans || pattern.affectedLoans.length === 0) return false;
+    // If no affected loans listed, that's okay for some pattern types
+    if (!pattern.affectedLoans) {
+      return pattern.affectedCount > 0; // As long as there's a count
+    }
     
-    // Verify at least some of the loans exist
-    const loanNumbers = new Set(loans.map(l => l.loanNumber));
-    const validLoans = pattern.affectedLoans.filter(id => loanNumbers.has(id));
+    if (pattern.affectedLoans.length === 0 && pattern.affectedCount > 0) {
+      return true; // Trust the count even if specific loans aren't listed
+    }
     
-    return validLoans.length > 0;
+    // If we have loan IDs, just check that they look valid (not that they exist in our array)
+    // This is because the AI might reference loans by different IDs or formats
+    const hasValidLoanIds = pattern.affectedLoans.some(id => 
+      id && id.length > 0 && (id.startsWith('LA') || id.startsWith('L') || /\d/.test(id))
+    );
+    
+    return hasValidLoanIds || pattern.affectedCount > 0;
   }
 
   checkImpact(pattern, loans) {

@@ -113,11 +113,9 @@ export class ResponseParser {
   parseWithAggressiveCleaning(text) {
     let cleaned = text;
     
-    // Remove all markdown
-    cleaned = cleaned.replace(/```[\s\S]*?```/g, (match) => {
-      const content = match.replace(/```[^\n]*\n?/g, '');
-      return content;
-    });
+    // Remove markdown code blocks but keep the content
+    cleaned = cleaned.replace(/```json\s*/gi, '');
+    cleaned = cleaned.replace(/```\s*/g, '');
     
     // Remove control characters
     cleaned = cleaned.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
@@ -127,13 +125,88 @@ export class ResponseParser {
     cleaned = cleaned.replace(/([{,]\s*)(\w+)(:)/g, '$1"$2"$3'); // Quote unquoted keys
     cleaned = cleaned.replace(/:\s*'([^']*)'/g, ': "$1"'); // Convert single quotes to double
     
-    // Extract JSON object
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    // Try to extract and fix truncated JSON
+    const jsonMatch = cleaned.match(/\{[\s\S]*/); // Match from opening brace to end
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
+      let jsonStr = jsonMatch[0];
+      
+      // Handle truncated JSON by attempting to close it properly
+      if (!this.isCompleteJSON(jsonStr)) {
+        jsonStr = this.attemptToCompleteJSON(jsonStr);
+      }
+      
+      return JSON.parse(jsonStr);
     }
     
     throw new Error('No JSON object found');
+  }
+  
+  /**
+   * Check if JSON is complete
+   */
+  isCompleteJSON(str) {
+    try {
+      JSON.parse(str);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  
+  /**
+   * Attempt to complete truncated JSON
+   */
+  attemptToCompleteJSON(jsonStr) {
+    // Count open and close braces/brackets
+    let braceCount = 0;
+    let bracketCount = 0;
+    let inString = false;
+    let escapeNext = false;
+    
+    for (let i = 0; i < jsonStr.length; i++) {
+      const char = jsonStr[i];
+      
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+      
+      if (char === '\\') {
+        escapeNext = true;
+        continue;
+      }
+      
+      if (char === '"' && !escapeNext) {
+        inString = !inString;
+        continue;
+      }
+      
+      if (!inString) {
+        if (char === '{') braceCount++;
+        if (char === '}') braceCount--;
+        if (char === '[') bracketCount++;
+        if (char === ']') bracketCount--;
+      }
+    }
+    
+    // Close any unclosed strings
+    if (inString) {
+      jsonStr += '"';
+    }
+    
+    // Close any unclosed arrays
+    while (bracketCount > 0) {
+      jsonStr += ']';
+      bracketCount--;
+    }
+    
+    // Close any unclosed objects
+    while (braceCount > 0) {
+      jsonStr += '}';
+      braceCount--;
+    }
+    
+    return jsonStr;
   }
 
   /**

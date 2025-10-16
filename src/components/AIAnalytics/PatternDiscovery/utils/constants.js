@@ -2,44 +2,44 @@
 export const ANALYSIS_TYPES = [
   { 
     id: 'comprehensive', 
-    name: '🎯 Comprehensive Multi-Pattern',
+    name: 'Comprehensive Multi-Pattern',
     description: 'Find 5-10 patterns across all dimensions',
     icon: '🎯',
     color: 'purple'
   },
   { 
     id: 'opportunities', 
-    name: '💰 Hidden Opportunities',
+    name: 'Hidden Opportunities',
     description: 'Underexploited profitable segments',
-    icon: '💰',
+    icon: '',
     color: 'green'
   },
   {
     id: 'risks',
-    name: '⚠️ Risk Patterns',
+    name: 'Risk Patterns',
     description: 'Early warning signals and risk clusters',
     icon: '⚠️',
     color: 'red'
   },
   {
     id: 'geographic',
-    name: '🗺️ Geographic Intelligence',
+    name: 'Geographic Intelligence',
     description: 'Location-based performance patterns',
-    icon: '🗺️',
+    icon: '',
     color: 'blue'
   },
   {
     id: 'industry',
-    name: '🏭 Industry Correlations',
+    name: 'Industry Correlations',
     description: 'Cross-industry insights',
-    icon: '🏭',
+    icon: '',
     color: 'orange'
   },
   {
     id: 'temporal',
-    name: '📅 Temporal Patterns',
+    name: 'Temporal Patterns',
     description: 'Time-based and seasonal trends',
-    icon: '📅',
+    icon: '',
     color: 'indigo'
   }
 ];

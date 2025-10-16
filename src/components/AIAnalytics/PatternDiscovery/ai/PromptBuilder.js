@@ -63,6 +63,8 @@ STATISTICAL VALIDATION:
 - Provide confidence intervals
 - Show sample size for each pattern
 - Calculate exact financial impact based on actual loan amounts
+// At the end of the prompt, add:
+CRITICAL: Ensure ALL patterns are complete. Do not truncate or cut off mid-pattern. If approaching token limits, complete fewer patterns rather than truncating.
 
 OUTPUT FORMAT (JSON only):
 ${this.getOutputFormat()}`;

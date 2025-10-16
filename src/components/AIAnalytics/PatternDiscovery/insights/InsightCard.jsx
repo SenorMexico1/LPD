@@ -11,15 +11,15 @@ export const InsightCard = ({ pattern, onActionClick, onDetailsClick }) => {
   
   const getTypeIcon = (type) => {
     const icons = {
-      opportunity: '💰',
-      risk: '⚠️',
-      correlation: '🔗',
-      anomaly: '🔍',
-      seasonal: '📅',
-      geographic: '🗺️',
-      industry: '🏭'
+      opportunity: '',
+      risk: '',
+      correlation: '',
+      anomaly: '',
+      seasonal: '',
+      geographic: '',
+      industry: ''
     };
-    return icons[type] || '📊';
+    return icons[type] || '';
   };
   
   return (
